@@ -1,0 +1,3570 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Clip POS Móvil • Multi-Pedido e Impresión Bluetooth</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Librería SheetJS para importar archivos Excel (.xlsx) de Clip directamente -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #F4F5F7;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .clip-gradient {
+            background: linear-gradient(135deg, #FF5A00 0%, #E04800 100%);
+        }
+        .clip-dark {
+            background-color: #181A20;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .card-tap:active {
+            transform: scale(0.97);
+        }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen pb-28 select-none">
+
+    <!-- ENCABEZADO COMPACTO ESTILO CLIP POS -->
+    <header class="clip-dark text-white sticky top-0 z-30 shadow-lg">
+        <div class="max-w-lg mx-auto px-3 py-2 flex items-center justify-between">
+            <!-- Logo Clip + Nombre del Negocio -->
+            <div class="flex items-center gap-2 min-w-0">
+                <div class="clip-gradient w-8 h-8 rounded-xl flex items-center justify-center shadow-md font-extrabold text-white text-sm tracking-tighter shrink-0">
+                    clip
+                </div>
+                <div class="min-w-0">
+                    <div class="flex items-center gap-1.5">
+                        <h1 id="headerNegocio" class="text-xs font-extrabold tracking-tight truncate">MI NEGOCIO</h1>
+                        <span id="badgeEditandoOrden" class="hidden bg-amber-500 text-slate-950 text-[9px] font-extrabold px-1.5 py-0.5 rounded">EDITANDO</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-none mt-0.5"><span id="lblCountHeader">149</span> prod. • Multi-Cliente</p>
+                </div>
+            </div>
+
+            <!-- Controles Superiores: Bluetooth + Botón Ajustes Ocultos -->
+            <div class="flex items-center gap-1.5 shrink-0">
+                <button onclick="conectarImpresora()" id="btnBluetooth" class="bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 text-white px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition">
+                    <span id="dotEstado" class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                    <span id="lblEstado" class="text-[11px] font-bold">Vincular BT</span>
+                </button>
+                <button onclick="abrirModalAjustes()" title="Configuración e Importar Catálogo" class="bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 text-slate-200 w-8 h-8 rounded-xl flex items-center justify-center text-sm">
+                    ⚙️
+                </button>
+            </div>
+        </div>
+
+        <!-- PESTAÑAS PRINCIPALES DE TRABAJO -->
+        <div class="max-w-lg mx-auto px-3 pb-2 flex gap-1.5">
+            <button onclick="cambiarModo('catalogo')" id="tabCatalogo" class="flex-1 py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 clip-gradient text-white shadow">
+                📦 Orden Actual
+            </button>
+            <button onclick="cambiarModo('historial')" id="tabHistorial" class="flex-1 py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 bg-slate-800 text-slate-300">
+                🕒 Historial (<span id="lblCountHistorial">0</span>/30)
+            </button>
+            <button onclick="cambiarModo('teclado')" id="tabTeclado" class="py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 bg-slate-800 text-slate-300">
+                ⌨️ Libre
+            </button>
+        </div>
+    </header>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <main class="max-w-lg mx-auto px-2.5 pt-2 space-y-2">
+
+        <!-- ================= MODO 1: TOMAR ORDEN (MULTI-PEDIDO POR CLIENTE) ================= -->
+        <section id="vistaCatalogo" class="space-y-2">
+
+            <!-- BARRA DE PEDIDOS / CLIENTES DENTRO DE LA MISMA ORDEN -->
+            <div class="bg-white p-2.5 rounded-2xl shadow-sm border border-orange-200/90 space-y-2">
+                <!-- Pestañas de Clientes de la Orden Actual -->
+                <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5" id="barraPedidosClientes">
+                    <!-- Generado dinámicamente -->
+                </div>
+
+                <!-- Editor instantáneo del nombre del cliente activo + Acciones rápidas de orden -->
+                <div class="flex items-center gap-1.5 bg-orange-50/70 p-1.5 rounded-xl border border-orange-200/70">
+                    <span class="text-xs font-extrabold text-[#E04800] pl-1 shrink-0">👤 Cliente:</span>
+                    <input type="text" id="txtNombreClienteActivo" oninput="actualizarNombreClienteActivo(this.value)" placeholder="Nombre del cliente (ej. Juan, Mesa 2)..." class="flex-1 bg-white border border-orange-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#FF5A00]">
+                    <button onclick="agregarNuevoPedidoCliente()" class="clip-gradient text-white text-[11px] font-extrabold px-2.5 py-1.5 rounded-lg shadow-xs shrink-0 active:scale-95 transition">
+                        + Otro Cliente
+                    </button>
+                </div>
+            </div>
+
+            <!-- BUSCADOR RÁPIDO Y CATEGORÍAS COMPACTAS -->
+            <div class="bg-white p-2 rounded-2xl shadow-sm border border-slate-200/80 space-y-1.5">
+                <div class="flex gap-1.5 items-center">
+                    <div class="relative flex-1 flex items-center">
+                        <span class="absolute left-2.5 text-slate-400 text-xs">🔍</span>
+                        <input type="text" id="txtBuscar" oninput="filtrarProductos()" placeholder="Buscar producto..." class="w-full pl-8 pr-7 py-1.5 bg-slate-100/80 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#FF5A00]">
+                        <button id="btnLimpiarBusqueda" onclick="limpiarBusqueda()" class="hidden absolute right-2 text-slate-400 hover:text-slate-600 text-xs font-bold px-1">✕</button>
+                    </div>
+                    <!-- Filtro rápido compacto -->
+                    <select id="selFiltroNivel" onchange="setFiltroNivel(this.value)" class="bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-bold rounded-xl px-2 py-1.5 focus:outline-none">
+                        <option value="todos">Todos (149)</option>
+                        <option value="top">🔥 Favoritos</option>
+                        <option value="normal">Menú Base</option>
+                        <option value="plus">Menú + (30)</option>
+                    </select>
+                </div>
+
+                <!-- Carrusel de Categorías -->
+                <div id="barraCategorias" class="flex gap-1.5 overflow-x-auto pt-0.5 pb-0.5 no-scrollbar"></div>
+            </div>
+
+            <!-- CUADRÍCULA DE PRODUCTOS (OCUPA EL MÁXIMO ESPACIO PARA TOMAR LA ORDEN) -->
+            <div id="gridProductos" class="grid grid-cols-2 sm:grid-cols-3 gap-2 pb-4"></div>
+        </section>
+
+        <!-- ================= MODO 2: HISTORIAL DE HASTA 30 ÓRDENES + IMPRESIÓN COMBINADA ================= -->
+        <section id="vistaHistorial" class="hidden space-y-2.5 pb-6">
+            <!-- Barra de Acción para Imprimir Varias Órdenes en 1 Solo Ticket -->
+            <div class="bg-slate-900 text-white p-3 rounded-2xl shadow-lg space-y-2">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-orange-400 block">Impresión Múltiple en 1 Ticket</span>
+                        <span class="text-xs font-semibold text-slate-300">Selecciona varias órdenes para imprimirlas juntas</span>
+                    </div>
+                    <div class="flex gap-1.5">
+                        <button onclick="seleccionarTodasHistorial(true)" class="bg-slate-800 hover:bg-slate-700 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-700">Todas</button>
+                        <button onclick="seleccionarTodasHistorial(false)" class="bg-slate-800 hover:bg-slate-700 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-700">Ninguna</button>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between pt-1.5 border-t border-slate-800 gap-2">
+                    <div>
+                        <span class="text-[11px] text-slate-400"><span id="lblCantOrdenesSel" class="font-extrabold text-white">0</span> órdenes marcadas</span>
+                        <span id="lblTotalOrdenesSel" class="block text-lg font-extrabold text-emerald-400 leading-tight">$0.00</span>
+                    </div>
+                    <div class="flex gap-1.5">
+                        <button onclick="vistaPreviaSeleccionadasHistorial()" class="bg-slate-800 active:scale-95 text-white font-bold text-xs px-3 py-2.5 rounded-xl border border-slate-700">
+                            👁️ Ver Ticket
+                        </button>
+                        <button onclick="imprimirOrdenesSeleccionadas()" class="clip-gradient active:scale-95 text-white font-extrabold text-xs px-3.5 py-2.5 rounded-xl shadow-md flex items-center gap-1">
+                            🖨️ Imprimir Juntas
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lista de las últimas 30 órdenes -->
+            <div class="flex justify-between items-center px-1">
+                <span class="text-xs font-extrabold text-slate-600 uppercase">Últimas Órdenes Guardadas (Máx. 30)</span>
+                <button onclick="limpiarHistorialCompleto()" class="text-[11px] text-rose-600 font-bold hover:underline">🗑 Borrar Historial</button>
+            </div>
+
+            <div id="listaHistorialOrdenes" class="space-y-2"></div>
+        </section>
+
+        <!-- ================= MODO 3: TECLADO MONTO LIBRE ================= -->
+        <section id="vistaTeclado" class="hidden space-y-3">
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 text-center space-y-3">
+                <span class="text-xs font-bold uppercase tracking-wider text-orange-600 block">Agregar al Pedido de: <strong id="lblClienteTeclado">Cliente 1</strong></span>
+                <div class="text-4xl font-extrabold text-slate-900 tracking-tight py-1" id="displayMontoLibre">$0.00</div>
+                <input type="text" id="txtConceptoLibre" placeholder="Concepto (ej. Extra, Pedido especial...)" class="w-full border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 text-xs text-center focus:outline-none focus:ring-2 focus:ring-[#FF5A00]">
+
+                <div class="grid grid-cols-3 gap-2 pt-1">
+                    <button onclick="teclaLibre('1')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">1</button>
+                    <button onclick="teclaLibre('2')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">2</button>
+                    <button onclick="teclaLibre('3')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">3</button>
+                    <button onclick="teclaLibre('4')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">4</button>
+                    <button onclick="teclaLibre('5')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">5</button>
+                    <button onclick="teclaLibre('6')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">6</button>
+                    <button onclick="teclaLibre('7')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">7</button>
+                    <button onclick="teclaLibre('8')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">8</button>
+                    <button onclick="teclaLibre('9')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">9</button>
+                    <button onclick="teclaLibre('.')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">.</button>
+                    <button onclick="teclaLibre('0')" class="bg-slate-100 active:bg-slate-200 py-3 rounded-xl text-lg font-extrabold text-slate-800">0</button>
+                    <button onclick="teclaLibre('DEL')" class="bg-rose-50 active:bg-rose-100 py-3 rounded-xl text-base font-extrabold text-rose-600">⌫</button>
+                </div>
+
+                <div class="flex gap-2 pt-1">
+                    <button onclick="teclaLibre('C')" class="w-1/3 bg-slate-200 text-slate-700 font-bold py-3 rounded-xl text-xs">Limpiar</button>
+                    <button onclick="agregarMontoLibre()" class="w-2/3 clip-gradient text-white font-extrabold py-3 rounded-xl text-sm shadow-md active:scale-95 transition">
+                        ➕ Agregar al Cliente
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- BARRA INFERIOR FLOTANTE ESTILO CLIP POS (MODIFICAR ORDEN / GUARDAR / IMPRIMIR) -->
+    <div class="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl">
+        <div class="max-w-lg mx-auto px-3 py-2 flex items-center justify-between gap-1.5">
+            <!-- Botón izquierdo: Abre el editor rápido de todos los clientes/pedidos de la orden -->
+            <button onclick="abrirModalTicket()" class="flex items-center gap-2 text-left flex-1 min-w-0">
+                <div class="relative bg-slate-900 text-white w-10 h-10 rounded-2xl flex items-center justify-center shadow-md shrink-0">
+                    <span class="text-base">🧾</span>
+                    <span id="badgeArticulos" class="absolute -top-1.5 -right-1.5 clip-gradient text-white text-[10px] font-extrabold min-w-[19px] h-[19px] px-1 rounded-full flex items-center justify-center shadow">0</span>
+                </div>
+                <div class="min-w-0">
+                    <span class="text-[10px] font-extrabold uppercase tracking-tight text-[#FF5A00] block truncate" id="lblResumenPedidosBarra">1 Cliente • Toca para editar</span>
+                    <span id="lblTotal" class="text-lg font-extrabold text-slate-900 leading-none">$0.00</span>
+                </div>
+            </button>
+
+            <!-- Botones de Acción Rápida -->
+            <div class="flex items-center gap-1.5 shrink-0">
+                <button onclick="abrirModalTicket()" class="bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-extrabold text-xs px-2.5 py-2.5 rounded-xl border border-slate-200 transition">
+                    ✏️ Modificar
+                </button>
+                <button onclick="guardarOrdenEnHistorial(true)" title="Guardar orden en el historial y limpiar para siguiente orden" class="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs px-2.5 py-2.5 rounded-xl shadow transition">
+                    💾 Guardar
+                </button>
+                <button onclick="imprimirTicketOrdenActual()" class="clip-gradient active:scale-95 text-white font-extrabold text-xs px-3.5 py-2.5 rounded-xl shadow-lg shadow-orange-500/30 transition flex items-center gap-1">
+                    🖨️ IMPRIMIR
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL 1: MODIFICAR ORDEN RÁPIDO (TODOS LOS CLIENTES Y PRODUCTOS) ================= -->
+    <div id="modalTicket" class="fixed inset-0 bg-black/60 backdrop-blur-xs hidden flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div class="bg-white rounded-t-3xl sm:rounded-3xl max-w-md w-full p-4 space-y-3 shadow-2xl max-h-[92vh] flex flex-col">
+            <div class="flex justify-between items-center border-b pb-2">
+                <div>
+                    <h3 class="font-extrabold text-slate-900 text-base">✏️ Modificar Orden y Clientes</h3>
+                    <p class="text-[11px] text-slate-500">Edita nombres, cantidades o agrega otro cliente a la misma orden</p>
+                </div>
+                <button onclick="cerrarModalTicket()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold flex items-center justify-center">✕</button>
+            </div>
+
+            <!-- Botón superior para agregar otro pedido/cliente desde aquí -->
+            <div class="flex justify-between items-center bg-orange-50 px-3 py-2 rounded-xl border border-orange-200">
+                <span class="text-xs font-bold text-slate-700">¿Otro cliente en la misma cuenta?</span>
+                <button onclick="agregarNuevoPedidoCliente(); cerrarModalTicket();" class="clip-gradient text-white text-xs font-extrabold px-3 py-1.5 rounded-lg shadow-xs">
+                    ➕ Agregar Cliente
+                </button>
+            </div>
+
+            <!-- Lista de Pedidos agrupados por Cliente -->
+            <div id="listaCarritoModal" class="flex-1 overflow-y-auto space-y-2.5 pr-0.5 max-h-60"></div>
+
+            <!-- Calculadora rápida de Efectivo y Cambio -->
+            <div class="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 space-y-1.5">
+                <div class="flex justify-between items-center">
+                    <span class="text-[11px] font-bold text-slate-600">💵 Pago en efectivo (Opcional)</span>
+                    <div class="flex gap-1">
+                        <button onclick="setEfectivo('exacto')" class="px-2 py-0.5 bg-white border rounded-md text-[10px] font-bold">Exacto</button>
+                        <button onclick="setEfectivo(100)" class="px-2 py-0.5 bg-white border rounded-md text-[10px] font-bold">$100</button>
+                        <button onclick="setEfectivo(200)" class="px-2 py-0.5 bg-white border rounded-md text-[10px] font-bold">$200</button>
+                        <button onclick="setEfectivo(500)" class="px-2 py-0.5 bg-white border rounded-md text-[10px] font-bold">$500</button>
+                        <button onclick="setEfectivo(0)" class="px-1.5 py-0.5 text-rose-500 text-[10px] font-bold">✕</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="number" id="txtEfectivoRecibido" oninput="calcularCambio()" placeholder="Efectivo recibido $" class="w-full border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800">
+                    <div class="bg-emerald-50 border border-emerald-200 rounded-xl px-2.5 py-1 flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-emerald-700 uppercase">Cambio:</span>
+                        <span id="lblCambio" class="text-sm font-extrabold text-emerald-600">$0.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vista previa desplegable -->
+            <details class="bg-amber-50/70 border border-amber-200 rounded-xl px-3 py-1.5 text-xs">
+                <summary class="font-bold text-amber-900 cursor-pointer">👁️ Ver vista previa del ticket con todos los clientes</summary>
+                <pre id="txtPreview" class="mt-2 text-[10px] font-mono overflow-x-auto leading-snug text-slate-800 max-h-40"></pre>
+            </details>
+
+            <!-- Botones finales -->
+            <div class="flex gap-1.5 pt-1">
+                <button onclick="nuevaOrdenEnBlanco(); cerrarModalTicket();" class="bg-rose-50 text-rose-600 font-bold text-xs px-3 py-3 rounded-2xl">
+                    🗑 Limpiar
+                </button>
+                <button onclick="guardarOrdenEnHistorial(true); cerrarModalTicket();" class="bg-emerald-600 text-white font-extrabold text-xs px-3.5 py-3 rounded-2xl shadow">
+                    💾 Guardar
+                </button>
+                <button onclick="imprimirTicketOrdenActual()" class="flex-1 clip-gradient text-white font-extrabold text-xs py-3 rounded-2xl shadow-lg flex items-center justify-center gap-1">
+                    🖨️ IMPRIMIR (<span id="lblTotalModal">$0.00</span>)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL 2: AJUSTES Y CATÁLOGO OCULTOS (PARA AHORRAR ESPACIO) ================= -->
+    <div id="modalAjustes" class="fixed inset-0 bg-black/60 backdrop-blur-xs hidden flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div class="bg-white rounded-t-3xl sm:rounded-3xl max-w-md w-full p-4 space-y-3 shadow-2xl max-h-[90vh] flex flex-col overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-2.5">
+                <div>
+                    <h3 class="font-extrabold text-slate-900 text-base">⚙️ Configuración y Catálogo</h3>
+                    <p class="text-[11px] text-slate-400">Oculto de la pantalla principal para darte más espacio</p>
+                </div>
+                <button onclick="cerrarModalAjustes()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold flex items-center justify-center">✕</button>
+            </div>
+
+            <!-- Sección 1 Colapsable: Datos del Encabezado y Ticket -->
+            <details class="bg-slate-50 rounded-2xl border border-slate-200 p-3">
+                <summary class="text-xs font-extrabold text-slate-700 cursor-pointer">🏪 Datos del Encabezado, Papel y Ticket</summary>
+                <div class="grid grid-cols-1 gap-2.5 pt-3">
+                    <div>
+                        <label class="text-[11px] font-bold text-slate-500 block mb-1">Nombre del Negocio</label>
+                        <input type="text" id="txtNegocio" value="MI NEGOCIO" oninput="guardarConfig()" class="w-full border border-slate-200 bg-white rounded-xl px-2.5 py-2 text-xs font-semibold">
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-bold text-slate-500 block mb-1">Mensaje de Pie de Ticket</label>
+                        <input type="text" id="txtPie" value="¡Gracias por su preferencia!" oninput="guardarConfig()" class="w-full border border-slate-200 bg-white rounded-xl px-2.5 py-2 text-xs font-semibold">
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-bold text-slate-500 block mb-1">Ancho de Papel Térmico</label>
+                        <select id="selPapel" onchange="guardarConfig()" class="w-full border border-slate-200 bg-white rounded-xl px-2.5 py-2 text-xs font-semibold">
+                            <option value="32">58 mm (32 caracteres por línea)</option>
+                            <option value="48">80 mm (48 caracteres por línea)</option>
+                        </select>
+                    </div>
+                </div>
+            </details>
+
+            <!-- Sección 2 Colapsable: Importar Catálogo de Clip (.xlsx o .csv) -->
+            <details class="bg-orange-50/70 rounded-2xl border border-orange-200 p-3">
+                <summary class="text-xs font-extrabold text-slate-800 cursor-pointer">📥 Importar Catálogo de Clip (.xlsx o .csv)</summary>
+                <div class="pt-3 flex items-center justify-between gap-2">
+                    <span class="text-[11px] text-slate-600">Sube tu archivo Excel de Clip o CSV para actualizar precios</span>
+                    <label class="clip-gradient text-white text-xs px-3.5 py-2 rounded-xl font-bold shadow cursor-pointer whitespace-nowrap">
+                        Subir Archivo
+                        <input type="file" id="inputArchivo" accept=".xlsx,.xls,.csv" onchange="importarArchivoCatalogo(event)" class="hidden">
+                    </label>
+                </div>
+            </details>
+
+            <!-- Sección 3 Colapsable: Agregar Producto Manual -->
+            <details class="bg-slate-50 rounded-2xl border border-slate-200 p-3">
+                <summary class="text-xs font-extrabold text-slate-700 cursor-pointer">➕ Agregar Producto Nuevo Manualmente</summary>
+                <div class="space-y-2 pt-3">
+                    <div class="grid grid-cols-3 gap-2">
+                        <input type="text" id="nuevoNombre" placeholder="Nombre (ej. Taco)" class="col-span-2 border border-slate-200 bg-white rounded-xl px-2.5 py-2 text-xs">
+                        <input type="number" id="nuevoPrecio" placeholder="Precio $" step="0.50" class="border border-slate-200 bg-white rounded-xl px-2.5 py-2 text-xs">
+                    </div>
+                    <div class="flex gap-2">
+                        <input type="text" id="nuevaCat" placeholder="Categoría (ej. Tacos, Bebidas)" class="flex-1 border border-slate-200 bg-white rounded-xl px-2.5 py-2 text-xs">
+                        <button onclick="guardarNuevoProducto()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold">Guardar</button>
+                    </div>
+                </div>
+            </details>
+
+            <!-- Sección 4 Colapsable: Administrar los 149 Productos -->
+            <details class="bg-slate-50 rounded-2xl border border-slate-200 p-3">
+                <summary class="text-xs font-extrabold text-slate-700 cursor-pointer">📋 Ver / Editar Catálogo Activo (<span id="countInventario">149</span> prod.)</summary>
+                <div class="space-y-2 pt-3">
+                    <div class="flex justify-end">
+                        <button onclick="restaurarInventarioInicial()" class="text-[11px] text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg font-bold">
+                            🔄 Restaurar 149 de Clip
+                        </button>
+                    </div>
+                    <div id="listaInventarioAdmin" class="divide-y divide-slate-100 max-h-48 overflow-y-auto text-xs border bg-white rounded-xl"></div>
+                </div>
+            </details>
+
+            <button onclick="cerrarModalAjustes()" class="w-full bg-slate-900 text-white font-bold text-xs py-3 rounded-2xl">
+                Cerrar Ajustes
+            </button>
+        </div>
+    </div>
+
+    <!-- ================= MODAL 3: VISTA PREVIA DE IMPRESIÓN COMBINADA ================= -->
+    <div id="modalPreviewCombinado" class="fixed inset-0 bg-black/60 backdrop-blur-xs hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-3xl max-w-sm w-full p-4 space-y-3 shadow-2xl">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h3 class="font-extrabold text-slate-900 text-sm">🧾 Vista Previa del Ticket</h3>
+                <button onclick="document.getElementById('modalPreviewCombinado').classList.add('hidden')" class="w-7 h-7 rounded-full bg-slate-100 text-slate-600 font-bold">✕</button>
+            </div>
+            <pre id="txtPreviewCombinado" class="bg-amber-50 border border-amber-200 p-3 rounded-xl text-[10px] font-mono overflow-x-auto max-h-80 leading-snug text-slate-800"></pre>
+            <div class="flex gap-2">
+                <button onclick="document.getElementById('modalPreviewCombinado').classList.add('hidden')" class="flex-1 bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl">Cerrar</button>
+                <button onclick="document.getElementById('modalPreviewCombinado').classList.add('hidden'); imprimirOrdenesSeleccionadas();" class="flex-1 clip-gradient text-white font-extrabold text-xs py-2.5 rounded-xl">🖨️ Imprimir Ahora</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 149 PRODUCTOS DEL CATÁLOGO OFICIAL DE CLIP ---
+        const PRODUCTOS_CLIP_BASE = [
+  {
+    "id": 143,
+    "uuid": "f0544d7a-dcfd-4848-8869-3a892f0f47aa",
+    "nombre": "Taco Suave",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 239
+  },
+  {
+    "id": 86,
+    "uuid": "8cd7f8bc-11f7-4544-a8aa-3bd9b7188ef1",
+    "nombre": "Consomé 500ml",
+    "desc": "consomé individual de borrego",
+    "categoria": "Pedidos",
+    "categorias": [
+      "Pedidos",
+      "Consomes"
+    ],
+    "precio": 25.0,
+    "inventario": 46813,
+    "barcode": "",
+    "vendidos": 83
+  },
+  {
+    "id": 39,
+    "uuid": "3b4e2480-5dac-425c-b499-e16cd0ec49ec",
+    "nombre": "Taco Maciza",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 39
+  },
+  {
+    "id": 16,
+    "uuid": "1466a2a9-3acc-4b2e-a842-ec8856139246",
+    "nombre": "Consomé 250ml",
+    "desc": "consome chico",
+    "categoria": "Consomes",
+    "categorias": [
+      "Consomes",
+      "Pedidos"
+    ],
+    "precio": 15.0,
+    "inventario": 49963,
+    "barcode": "",
+    "vendidos": 35
+  },
+  {
+    "id": 81,
+    "uuid": "852bba94-39a6-4fee-b199-2556741a72ca",
+    "nombre": "Quesadillas",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 34
+  },
+  {
+    "id": 91,
+    "uuid": "929384bd-1671-4cd5-8c97-6b929156d0c8",
+    "nombre": "Taco Espaldilla",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 26
+  },
+  {
+    "id": 2,
+    "uuid": "02921550-325d-4e96-92a5-382fde7109e0",
+    "nombre": "4 Tacos Dorados",
+    "desc": "",
+    "categoria": "Tacos Dorados",
+    "categorias": [
+      "Tacos Dorados"
+    ],
+    "precio": 66.0,
+    "inventario": 49978,
+    "barcode": "",
+    "vendidos": 24
+  },
+  {
+    "id": 57,
+    "uuid": "50d60775-b57b-4c13-b8ab-f692fa26d768",
+    "nombre": "Refresco Vidrio",
+    "desc": "refresco de 355 ml",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": 20,
+    "barcode": "75005771",
+    "vendidos": 23
+  },
+  {
+    "id": 53,
+    "uuid": "4e334bd4-e1d1-4921-acef-78b25d760d54",
+    "nombre": "Tlacoyo Sencillo",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 21
+  },
+  {
+    "id": 87,
+    "uuid": "8cda0ad4-6c30-4e3a-9ddd-ae317cc4580a",
+    "nombre": "Gordita Sencilla",
+    "desc": "",
+    "categoria": "Gorditas",
+    "categorias": [
+      "Gorditas"
+    ],
+    "precio": 25.0,
+    "inventario": 49976,
+    "barcode": "",
+    "vendidos": 18
+  },
+  {
+    "id": 55,
+    "uuid": "4e7a3b9b-6b74-4f55-9672-dcba909cc4e7",
+    "nombre": "Taco Campechano",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 17
+  },
+  {
+    "id": 18,
+    "uuid": "193de894-a1e8-4c15-aaf3-ffa48763cf92",
+    "nombre": "Taco Dorado",
+    "desc": "",
+    "categoria": "Tacos Dorados",
+    "categorias": [
+      "Tacos Dorados"
+    ],
+    "precio": 25.0,
+    "inventario": 1000,
+    "barcode": "",
+    "vendidos": 16
+  },
+  {
+    "id": 80,
+    "uuid": "84c82596-52f4-4a83-a9cb-7a0a8f5cd95c",
+    "nombre": "Tlacoyo Haba",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 14
+  },
+  {
+    "id": 118,
+    "uuid": "ce11d6ac-5dec-498b-b3e5-7e772bd60b10",
+    "nombre": "Gordita Barbacoa",
+    "desc": "",
+    "categoria": "Gorditas",
+    "categorias": [
+      "Gorditas"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 13
+  },
+  {
+    "id": 14,
+    "uuid": "132da1d9-1f16-4836-bc6a-8ba10f10d0df",
+    "nombre": "Taco Costilla",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": 1385,
+    "barcode": "",
+    "vendidos": 11
+  },
+  {
+    "id": 74,
+    "uuid": "74e1fc5b-6f0b-4f9d-b60e-ff346a6bf45b",
+    "nombre": "Taco Panza",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 11
+  },
+  {
+    "id": 32,
+    "uuid": "30367582-2402-4ab5-ba18-c9dbccadbf8e",
+    "nombre": "Taco Surtido",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 10
+  },
+  {
+    "id": 27,
+    "uuid": "269594da-63e9-4e7b-8de4-87366a5465d8",
+    "nombre": "Gordita Queso",
+    "desc": "Gordita de chicharron con quesillo (queso oaxaca)",
+    "categoria": "Gorditas",
+    "categorias": [
+      "Gorditas"
+    ],
+    "precio": 25.0,
+    "inventario": 49985,
+    "barcode": "",
+    "vendidos": 8
+  },
+  {
+    "id": 15,
+    "uuid": "13aea2da-f573-4b0f-b55e-a988a0f2bb90",
+    "nombre": "Tlacoyo Requeson",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 8
+  },
+  {
+    "id": 28,
+    "uuid": "26be91df-b744-4c8b-9baf-2396a5c5cc33",
+    "nombre": "Agua 1L Horchata",
+    "desc": "Agua verde, Jamaica, horchata",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": 49994,
+    "barcode": "",
+    "vendidos": 7
+  },
+  {
+    "id": 50,
+    "uuid": "4a754834-1de5-461d-bc2c-5676740cfe16",
+    "nombre": "Agua 1L Jamaica",
+    "desc": "Agua de un litro de Jamaica",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": 49995,
+    "barcode": "",
+    "vendidos": 6
+  },
+  {
+    "id": 99,
+    "uuid": "9d7064eb-d5fb-4a05-9813-9bcbace43f18",
+    "nombre": "Café de olla",
+    "desc": "",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 13.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 6
+  },
+  {
+    "id": 113,
+    "uuid": "c10fdf42-0d14-4b23-9690-2c1c22104d94",
+    "nombre": "Q Barba Queso",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 6
+  },
+  {
+    "id": 114,
+    "uuid": "c19ebd04-7f17-45d0-a757-4a5155a23109",
+    "nombre": "Agua M Horchata",
+    "desc": "",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 22.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 4
+  },
+  {
+    "id": 54,
+    "uuid": "4e6423b7-0d87-440d-986e-2b75b09581d9",
+    "nombre": "Q Chich Queso",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 4
+  },
+  {
+    "id": 29,
+    "uuid": "29fd9211-de16-49c7-84b5-2ce73a966e88",
+    "nombre": "Q Pollo",
+    "desc": "qiesadilla de pollo",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 4
+  },
+  {
+    "id": 108,
+    "uuid": "bbd1f65d-6a8a-45c7-83a1-8831ead69f46",
+    "nombre": "Q Queso",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 4
+  },
+  {
+    "id": 10,
+    "uuid": "0fb60ca3-985f-40a9-ab90-84c80391a5d3",
+    "nombre": "Tlacoyo Frijol",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 4
+  },
+  {
+    "id": 47,
+    "uuid": "4624c5e3-d5b2-4a53-a87d-fe31d73f5db0",
+    "nombre": "Q Champi Queso",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 3
+  },
+  {
+    "id": 149,
+    "uuid": "ffd241c5-c99c-47cb-a931-15528ecb1c45",
+    "nombre": "Sope Sencillo",
+    "desc": "",
+    "categoria": "Sopes",
+    "categorias": [
+      "Sopes"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 3
+  },
+  {
+    "id": 26,
+    "uuid": "260d8aaf-1f25-4d58-b064-45b48e2c810b",
+    "nombre": "Agua M Jamaica",
+    "desc": "agua de 500 ml de Jamaica, Horchata o Verde",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 22.0,
+    "inventario": 49997,
+    "barcode": "",
+    "vendidos": 2
+  },
+  {
+    "id": 25,
+    "uuid": "25dd4066-f6e3-4d52-9237-02f7f14b6855",
+    "nombre": "Agua M Verde",
+    "desc": "",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 22.0,
+    "inventario": 49996,
+    "barcode": "",
+    "vendidos": 2
+  },
+  {
+    "id": 132,
+    "uuid": "df2b9b33-0efb-4311-a961-51e2a77df5ec",
+    "nombre": "Consomé 1 L",
+    "desc": "litro de consome de borrego",
+    "categoria": "Pedidos",
+    "categorias": [
+      "Pedidos",
+      "Consomes"
+    ],
+    "precio": 50.0,
+    "inventario": 72,
+    "barcode": "",
+    "vendidos": 2
+  },
+  {
+    "id": 120,
+    "uuid": "cf44a475-056c-4020-93f3-ee71d7dff6cd",
+    "nombre": "Q Huitlacoche",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 2
+  },
+  {
+    "id": 22,
+    "uuid": "206371fc-d740-4a44-ae18-c51756cef1ac",
+    "nombre": "Agua 1L Verde",
+    "desc": "Agua De piña, Guayaba y Apio de un litro",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": 49997,
+    "barcode": "",
+    "vendidos": 1
+  },
+  {
+    "id": 35,
+    "uuid": "33e20e3e-21ee-4ab4-a18d-ad7dab8aec9e",
+    "nombre": "Barbacoa 250g",
+    "desc": "un cuarto de barbacoa con los complementos correspondientes",
+    "categoria": "Pedidos",
+    "categorias": [
+      "Pedidos"
+    ],
+    "precio": 175.0,
+    "inventario": 189,
+    "barcode": "",
+    "vendidos": 1
+  },
+  {
+    "id": 134,
+    "uuid": "e1504b5c-b1fe-43d7-99e2-205054d5c1b7",
+    "nombre": "Barbacoa 750g",
+    "desc": "",
+    "categoria": "Pedidos",
+    "categorias": [
+      "Pedidos"
+    ],
+    "precio": 525.0,
+    "inventario": 18,
+    "barcode": "",
+    "vendidos": 1
+  },
+  {
+    "id": 46,
+    "uuid": "45c6c30d-d4d6-4f41-a696-fe25cd055feb",
+    "nombre": "CANADA DRY",
+    "desc": "Agua mineral",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": 0,
+    "barcode": "7501198350012",
+    "vendidos": 1
+  },
+  {
+    "id": 78,
+    "uuid": "83372459-46a6-4d2d-9d3d-0642d73272d6",
+    "nombre": "CocaCola600ml",
+    "desc": "coca cola de plastico",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": 49989,
+    "barcode": "",
+    "vendidos": 1
+  },
+  {
+    "id": 97,
+    "uuid": "9830cf40-76e7-425a-a485-8685434d7fd0",
+    "nombre": "Q Chicharron",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 1
+  },
+  {
+    "id": 117,
+    "uuid": "ccbd6f00-3c56-4f87-be2b-e0cfc8c548bb",
+    "nombre": "Sabritas toreadas",
+    "desc": "",
+    "categoria": "Sabritas",
+    "categorias": [
+      "Sabritas"
+    ],
+    "precio": 20.0,
+    "inventario": null,
+    "barcode": "7500810027813",
+    "vendidos": 1
+  },
+  {
+    "id": 111,
+    "uuid": "bf81fcb8-e8d1-4a37-a38f-baefa7c70e07",
+    "nombre": "Tlayo-Fr-Barbacoa",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 1
+  },
+  {
+    "id": 41,
+    "uuid": "3d9cc476-e2f5-420b-8e67-19804e4a5d0a",
+    "nombre": "1 Borrego",
+    "desc": "borrego completo",
+    "categoria": "Pedidos",
+    "categorias": [
+      "Pedidos"
+    ],
+    "precio": 8000.0,
+    "inventario": 10,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 49,
+    "uuid": "47d35378-6c1f-43e4-aafc-facdfe48393a",
+    "nombre": "1L Agua Horchata",
+    "desc": "",
+    "categoria": "Bebidas 30",
+    "categorias": [
+      "Bebidas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 11,
+    "uuid": "12356ee9-7b74-4e03-8a84-19cfc08e2af1",
+    "nombre": "1L Agua Jamaica",
+    "desc": "",
+    "categoria": "Bebidas 30",
+    "categorias": [
+      "Bebidas 30"
+    ],
+    "precio": 30.0,
+    "inventario": 50000,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 71,
+    "uuid": "6ee21f99-ee45-43fd-a737-4625445b5ad7",
+    "nombre": "1L Agua Verde",
+    "desc": "",
+    "categoria": "Bebidas 30",
+    "categorias": [
+      "Bebidas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 121,
+    "uuid": "cf7a8b56-7453-4719-8cb3-971d4111d090",
+    "nombre": "1M Agua Horchata",
+    "desc": "",
+    "categoria": "Bebidas 30",
+    "categorias": [
+      "Bebidas 30"
+    ],
+    "precio": 20.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 61,
+    "uuid": "56a1b8e0-4abd-4278-a210-3f6824a6b16a",
+    "nombre": "1M Agua Jamaica",
+    "desc": "",
+    "categoria": "Bebidas 30",
+    "categorias": [
+      "Bebidas 30"
+    ],
+    "precio": 20.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 23,
+    "uuid": "24bf22ce-79e6-417a-a7e2-d5b49be4bf96",
+    "nombre": "1M Agua Verde",
+    "desc": "",
+    "categoria": "Bebidas 30",
+    "categorias": [
+      "Bebidas 30"
+    ],
+    "precio": 20.0,
+    "inventario": 50000,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 68,
+    "uuid": "6c1c4d44-cb48-465b-ad84-10cad9958ced",
+    "nombre": "3 Tacos Dorados",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 60.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 63,
+    "uuid": "5b846d66-834f-4103-ba89-ed0bad0409fb",
+    "nombre": "4 Tacos Dorados +",
+    "desc": "",
+    "categoria": "Tacos Dorados",
+    "categorias": [
+      "Tacos Dorados"
+    ],
+    "precio": 66.99,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 38,
+    "uuid": "3ab42113-0682-4622-980f-3c6dc766b152",
+    "nombre": "Agua Boanafont",
+    "desc": "agua de 500 ml natural marca existente",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 20.0,
+    "inventario": 96,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 60,
+    "uuid": "564d99e0-0fde-444c-b694-33e88bb8ad39",
+    "nombre": "Agua Mineral",
+    "desc": "Peñafiel o topo chico natura",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 1,
+    "uuid": "01c0d3dc-95d7-45a5-a6d0-a20bde0210c5",
+    "nombre": "Agua Mineral +",
+    "desc": "",
+    "categoria": "Bebidas 30",
+    "categorias": [
+      "Bebidas 30"
+    ],
+    "precio": 30.0,
+    "inventario": 50000,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 83,
+    "uuid": "8c6c0a3f-95dd-4d8e-881c-3f37a96e051c",
+    "nombre": "Barbacoa 1 K",
+    "desc": "kilo de barbacoa con todos los complementos incluidos + tortillas",
+    "categoria": "Pedidos",
+    "categorias": [
+      "Pedidos"
+    ],
+    "precio": 700.0,
+    "inventario": 9,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 98,
+    "uuid": "999d6cc9-5676-46a2-a66c-a3b5e86c4b67",
+    "nombre": "Barbacoa 500g",
+    "desc": "medio kilo de barbacoa con todos los complementos includidos",
+    "categoria": "Pedidos",
+    "categorias": [
+      "Pedidos"
+    ],
+    "precio": 350.0,
+    "inventario": 13,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 48,
+    "uuid": "46d8a19b-09c3-49ce-be4a-df0f7e171c49",
+    "nombre": "Boing Guayaba",
+    "desc": "",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 76,
+    "uuid": "7dc33c20-664a-4413-932a-a25100424429",
+    "nombre": "Boing Mango",
+    "desc": "",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 21,
+    "uuid": "1e9cce5c-9e6d-4c84-a890-56c2536f09d4",
+    "nombre": "bolsa asa",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 1.0,
+    "inventario": 993,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 93,
+    "uuid": "9511623b-8813-4fee-9d27-015a3d4063e6",
+    "nombre": "Coca Cola +",
+    "desc": "",
+    "categoria": "Bebidas 30",
+    "categorias": [
+      "Bebidas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 92,
+    "uuid": "9432d0be-a03d-4b5e-b8dc-43faaf2834f1",
+    "nombre": "CocaCola355ml",
+    "desc": "",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 133,
+    "uuid": "e107dd60-cefa-4a0a-b0fc-c888ec9efce7",
+    "nombre": "Consomé Chico",
+    "desc": "",
+    "categoria": "Consomes 30",
+    "categorias": [
+      "Consomes 30"
+    ],
+    "precio": 20.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 69,
+    "uuid": "6cff1508-4567-4a67-a5e1-91ba6e2c0061",
+    "nombre": "Consomé Normal",
+    "desc": "",
+    "categoria": "Consomes 30",
+    "categorias": [
+      "Consomes 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 146,
+    "uuid": "f8198853-e504-4be9-9396-75f3501108b5",
+    "nombre": "Cuchara Extra",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 1.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 126,
+    "uuid": "d82d7a76-dec8-4f7e-8e71-dc71c4f8dc34",
+    "nombre": "Extra Cebolla",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 2.5,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 139,
+    "uuid": "ec819f85-d02f-4577-8aab-0117fb877753",
+    "nombre": "Extra Cilantro",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 2.5,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 72,
+    "uuid": "70ec8a22-8113-48cc-b7ab-68f1ae9649fc",
+    "nombre": "Gordit Gisado",
+    "desc": "",
+    "categoria": "Gorditas",
+    "categorias": [
+      "Gorditas"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 65,
+    "uuid": "5ceecd38-70a5-43cb-82db-b6a9951676b8",
+    "nombre": "Gordita Barbacoa +",
+    "desc": "",
+    "categoria": "Gorditas 30",
+    "categorias": [
+      "Gorditas 30"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 138,
+    "uuid": "e8145b58-b09c-4f69-87f7-239156b98c0f",
+    "nombre": "Gordita Panza",
+    "desc": "",
+    "categoria": "Gorditas",
+    "categorias": [
+      "Gorditas"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 52,
+    "uuid": "4df9815a-a9b6-4ad8-8fb9-62dc56075d6d",
+    "nombre": "Gordita Pollo",
+    "desc": "",
+    "categoria": "Gorditas",
+    "categorias": [
+      "Gorditas"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 105,
+    "uuid": "af1023ce-9e86-4f53-896a-d9de3a06c3bb",
+    "nombre": "Gordita Queso+",
+    "desc": "",
+    "categoria": "Gorditas 30",
+    "categorias": [
+      "Gorditas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 130,
+    "uuid": "dcdf988f-2c4c-492b-a6b3-bbcc88422400",
+    "nombre": "Gordita Sencilla +",
+    "desc": "",
+    "categoria": "Gorditas 30",
+    "categorias": [
+      "Gorditas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 140,
+    "uuid": "ec87e8d1-c615-430f-bb19-79d8a77e1eff",
+    "nombre": "Peñafiel 600ml",
+    "desc": "Agua mineral",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "7501073830509",
+    "vendidos": 0
+  },
+  {
+    "id": 36,
+    "uuid": "36ae76f9-33b3-4c00-b3a9-84fc7ea8546a",
+    "nombre": "Peñafiel Twist",
+    "desc": "",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 142,
+    "uuid": "f009f955-d014-4f6e-9ef6-a07f1a98d738",
+    "nombre": "Plato Unicel",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 1.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 64,
+    "uuid": "5b8bf08d-bd21-49de-83d6-a83e5948beba",
+    "nombre": "Q Barbacoa",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 104,
+    "uuid": "ae7b41f5-79ca-4d7f-b858-b58eebe6ff3a",
+    "nombre": "Q Barbacoa +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 9,
+    "uuid": "0f4c17b2-28ea-4762-9bae-d008c5b3dc4d",
+    "nombre": "Q Champi",
+    "desc": "quesadilla de champi;ones sencilla",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": 49999,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 89,
+    "uuid": "91a5d072-ae8e-4550-bdcb-871b3ba90e3b",
+    "nombre": "Q Chich-Queso +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 6,
+    "uuid": "09ae50f1-f7d1-4322-a464-767e5d833e0b",
+    "nombre": "Q Chicharron +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": 50001,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 141,
+    "uuid": "ee6ee876-2f42-487e-921d-e05ff05acbab",
+    "nombre": "Q Flor",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 66,
+    "uuid": "65d2f4aa-a696-4eae-b5bb-87ba07190451",
+    "nombre": "Q Flor Calabaza",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 82,
+    "uuid": "869a6bb3-54ae-4841-a5ff-c689ae86e09c",
+    "nombre": "Q Flor Queso",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 4,
+    "uuid": "0721b222-7d63-48fb-837d-d7f26030aada",
+    "nombre": "Q Flor Queso +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": 1000,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 24,
+    "uuid": "25bce71b-9e64-4dc4-910b-d4f766290075",
+    "nombre": "Q Hongo Queso",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": 1000,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 8,
+    "uuid": "0f1eb779-b52a-4541-a257-9d365a8e0bfe",
+    "nombre": "Q Hongos",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": 1000,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 103,
+    "uuid": "a9e5c5f1-ea4c-4006-8b4e-310fa5467c7a",
+    "nombre": "Q Huitl-Queso +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 7,
+    "uuid": "0caf3e43-2cf5-49d6-be83-d28dd1c6f626",
+    "nombre": "Q Huitla Queso",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": 1000,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 112,
+    "uuid": "bf89668d-e9f6-4bb9-bee0-409a559f3b26",
+    "nombre": "Q Huitlacoche +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 84,
+    "uuid": "8c92dfcd-7c62-40e7-823d-5aca46f656bd",
+    "nombre": "Q Panza +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 107,
+    "uuid": "b65fa0cf-03e7-42dc-9e6f-e1b3bd460ef4",
+    "nombre": "Q Pollo +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 45,
+    "uuid": "44a89679-3572-4af1-a3cd-109328892ac6",
+    "nombre": "Q Pollo Queso",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 135,
+    "uuid": "e2631fce-7816-4d64-92c0-a21c46b8d50d",
+    "nombre": "Q Pollo Queso +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 40,
+    "uuid": "3cc2cdb3-057f-4372-aaa5-3c1a0b0433cd",
+    "nombre": "Q Quelit Queso",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 19,
+    "uuid": "1b864c8f-a545-4766-9240-212de20d5930",
+    "nombre": "Q QueliteQueso",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": 1000,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 94,
+    "uuid": "970a4f3d-53b4-465a-8a0d-ee328aa39638",
+    "nombre": "Q Quelites",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 75,
+    "uuid": "7b3214e2-0156-46f6-828b-e3b0be39347f",
+    "nombre": "Q Quelites +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 109,
+    "uuid": "bcc6a748-3b19-4dc3-870f-abb4ea6dd27b",
+    "nombre": "Q Queso +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 58,
+    "uuid": "526b83da-b2c3-4233-999a-9353373aa5f6",
+    "nombre": "Quesa Panza",
+    "desc": "",
+    "categoria": "Quesadillas",
+    "categorias": [
+      "Quesadillas"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 131,
+    "uuid": "de76a5c2-318d-46d5-a0f0-780ac2c0f48c",
+    "nombre": "Quesadillas +",
+    "desc": "",
+    "categoria": "Quesadillas 30",
+    "categorias": [
+      "Quesadillas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 43,
+    "uuid": "4064cf81-8976-458f-853e-c8310681eb00",
+    "nombre": "Refresco Vidrio 355ml",
+    "desc": "Cualquier sabor",
+    "categoria": "Bebidas 30",
+    "categorias": [
+      "Bebidas 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 88,
+    "uuid": "8cdf2b5e-acf3-42a2-9619-3749b2f7886b",
+    "nombre": "Salsa Macha",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 15.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 51,
+    "uuid": "4b4a4c4b-edee-4f1a-8c60-2b0a99dfdc90",
+    "nombre": "Salsa Roja",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 5.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 124,
+    "uuid": "d7e0d878-8321-49b3-811e-bfb84fcb1259",
+    "nombre": "Salsa verde",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 5.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 115,
+    "uuid": "c7f3598f-9b1f-44e7-9e33-b0ba125b6b8e",
+    "nombre": "Sangria 355ml",
+    "desc": "",
+    "categoria": "Bebidas",
+    "categorias": [
+      "Bebidas"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 67,
+    "uuid": "6651a6d4-1927-440a-896c-dbc4dfe599e9",
+    "nombre": "Sope Barbacoa",
+    "desc": "",
+    "categoria": "Sopes",
+    "categorias": [
+      "Sopes"
+    ],
+    "precio": 35.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 56,
+    "uuid": "4eec1e43-e594-482f-906f-6bd6b7ab57c7",
+    "nombre": "Sope Barbacoa +",
+    "desc": "",
+    "categoria": "Sopes 30-40",
+    "categorias": [
+      "Sopes 30-40"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 62,
+    "uuid": "56fa479b-f965-48bc-a1bd-c1029b219796",
+    "nombre": "Sope Panza",
+    "desc": "",
+    "categoria": "Sopes",
+    "categorias": [
+      "Sopes"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 77,
+    "uuid": "7ec4ca57-0d3a-4dca-9fc1-77462e51ddfb",
+    "nombre": "Sope Panza+",
+    "desc": "",
+    "categoria": "Sopes 30-40",
+    "categorias": [
+      "Sopes 30-40"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 101,
+    "uuid": "9e73d768-7f21-4c9d-8a66-b7d1c1fa027b",
+    "nombre": "Sope Pollo",
+    "desc": "",
+    "categoria": "Sopes",
+    "categorias": [
+      "Sopes"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 17,
+    "uuid": "18799d5c-6c7e-4693-8879-3b748ba735d1",
+    "nombre": "Sope pollo +",
+    "desc": "",
+    "categoria": "Sopes 30-40",
+    "categorias": [
+      "Sopes 30-40"
+    ],
+    "precio": 30.0,
+    "inventario": 1000,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 136,
+    "uuid": "e3911a9f-4dc2-4a78-ae9b-4b2edb2c145c",
+    "nombre": "Sope sencillo +",
+    "desc": "",
+    "categoria": "Sopes 30-40",
+    "categorias": [
+      "Sopes 30-40"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 37,
+    "uuid": "393632f2-805d-47ff-9322-65dfaf832eb2",
+    "nombre": "Taco Cachete",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 100,
+    "uuid": "9e6f33e9-871c-41e4-8432-440e9aa00e5c",
+    "nombre": "Taco Campechano +",
+    "desc": "",
+    "categoria": "Tacos 30",
+    "categorias": [
+      "Tacos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 90,
+    "uuid": "924a2ee8-7a02-4bfb-87af-dc4f6756997d",
+    "nombre": "Taco Costilla +",
+    "desc": "",
+    "categoria": "Tacos 30",
+    "categorias": [
+      "Tacos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 31,
+    "uuid": "2ed8db8c-a2f5-414c-a4f1-599627dff1c8",
+    "nombre": "Taco Cuello",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 70,
+    "uuid": "6ea0cbf4-5d74-41dc-9432-64976260040c",
+    "nombre": "Taco Dorado +",
+    "desc": "",
+    "categoria": "Tacos 30",
+    "categorias": [
+      "Tacos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 106,
+    "uuid": "b459bb71-c971-48ca-8c47-172454332486",
+    "nombre": "Taco Espaldilla +",
+    "desc": "",
+    "categoria": "Tacos 30",
+    "categorias": [
+      "Tacos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 44,
+    "uuid": "41d011c5-862a-4178-9aad-c22a0df9f94b",
+    "nombre": "Taco Espinazo",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 96,
+    "uuid": "976ebf9d-e48f-4d85-8de8-c5dd52c877ab",
+    "nombre": "Taco Falda",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 20,
+    "uuid": "1e4a5904-7382-4f35-a6b1-6b373f0a35f5",
+    "nombre": "Taco Falda +",
+    "desc": "",
+    "categoria": "Tacos 30",
+    "categorias": [
+      "Tacos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 147,
+    "uuid": "f8df7832-707f-4717-9e27-bde7dcfe2a38",
+    "nombre": "Taco Lengua",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 125,
+    "uuid": "d80c28b9-8e62-4c85-9c6f-1c3f213f6c12",
+    "nombre": "Taco Maciza+",
+    "desc": "",
+    "categoria": "Tacos 30",
+    "categorias": [
+      "Tacos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 73,
+    "uuid": "712d7be0-9c7b-46f9-99c7-36f2e19f90c0",
+    "nombre": "Taco Ojo",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 123,
+    "uuid": "d6e3bf2f-8b38-4d34-a6ea-fb1c681502f2",
+    "nombre": "Taco Panza +",
+    "desc": "",
+    "categoria": "Tacos 30",
+    "categorias": [
+      "Tacos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 95,
+    "uuid": "9764f4c5-8988-4763-a78e-25b9de7e0f82",
+    "nombre": "Taco Pecho",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 42,
+    "uuid": "405b3e08-6f85-4741-985c-1d77ee138c79",
+    "nombre": "Taco Pierna",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 122,
+    "uuid": "d6ba7ca1-5c51-4005-8b67-77f21a5e78e6",
+    "nombre": "Taco Sesos",
+    "desc": "",
+    "categoria": "Tacos",
+    "categorias": [
+      "Tacos"
+    ],
+    "precio": 25.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 148,
+    "uuid": "f97be75e-59c3-42a8-b6a3-338a76c63b2e",
+    "nombre": "Taco Suave +",
+    "desc": "",
+    "categoria": "Tacos 30",
+    "categorias": [
+      "Tacos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 119,
+    "uuid": "ce9c5ea0-9b9d-49aa-b60c-560b7470e907",
+    "nombre": "Taco Surtido +",
+    "desc": "",
+    "categoria": "Tacos 30",
+    "categorias": [
+      "Tacos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 33,
+    "uuid": "30cc38b4-ce1a-46d9-903c-dbd43283e539",
+    "nombre": "Tlacoyo Frijol +",
+    "desc": "",
+    "categoria": "Tlacoyos 30",
+    "categorias": [
+      "Tlacoyos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 137,
+    "uuid": "e5365a28-4bee-461c-8122-c7bbd0c64b34",
+    "nombre": "Tlacoyo Haba +",
+    "desc": "",
+    "categoria": "Tlacoyos 30",
+    "categorias": [
+      "Tlacoyos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 145,
+    "uuid": "f503fc4d-3864-4ab8-9f25-de1fbb9f43e8",
+    "nombre": "Tlacoyo Requesón +",
+    "desc": "",
+    "categoria": "Tlacoyos 30",
+    "categorias": [
+      "Tlacoyos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 13,
+    "uuid": "129a7bc7-c3a6-4d47-937a-82ca791edd67",
+    "nombre": "Tlayo-Fr-Panz",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 79,
+    "uuid": "845599fc-287a-4864-ac39-a1a5727bddf8",
+    "nombre": "Tlayo-Ha-Barbacoa",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 102,
+    "uuid": "a01c1af5-910c-4d08-80c2-7dcaa7716483",
+    "nombre": "Tlayo-Ha-Panza",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 127,
+    "uuid": "d9bc9a97-deb7-48bc-a316-24be70665b24",
+    "nombre": "Tlayo-Ha-Pollo",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 116,
+    "uuid": "cc499e43-ed33-495a-a173-a5eeeac5ba7d",
+    "nombre": "Tlayo-Re-Barbacoa",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 144,
+    "uuid": "f209332c-9091-4503-ac2f-f6b2f9322a70",
+    "nombre": "Tlayo-Re-Panza",
+    "desc": "",
+    "categoria": "Tlacoyos",
+    "categorias": [
+      "Tlacoyos"
+    ],
+    "precio": 32.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 59,
+    "uuid": "53eba0f4-ef18-41b7-9db9-eb389d66190b",
+    "nombre": "Tly-Frij-Barbacoa +",
+    "desc": "",
+    "categoria": "Tlacoyos 30",
+    "categorias": [
+      "Tlacoyos 30"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 85,
+    "uuid": "8c94c45d-aa80-434e-bef1-41307a7a0268",
+    "nombre": "Tly-Frij-Panza +",
+    "desc": "",
+    "categoria": "Tlacoyos 30",
+    "categorias": [
+      "Tlacoyos 30"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 110,
+    "uuid": "beff2c2d-8e48-4950-89dc-4386a60a8938",
+    "nombre": "Tly-Haba-Barbacoa +",
+    "desc": "",
+    "categoria": "Tlacoyos 30",
+    "categorias": [
+      "Tlacoyos 30"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 3,
+    "uuid": "0561f198-33c7-4661-88ba-b75ee6a7870e",
+    "nombre": "Tly-Haba-Panza +",
+    "desc": "",
+    "categoria": "Tlacoyos 30",
+    "categorias": [
+      "Tlacoyos 30"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 34,
+    "uuid": "30ecebcf-d43d-4547-98d4-001c0d9ea1c2",
+    "nombre": "Tly-Requ-Barbacoa +",
+    "desc": "",
+    "categoria": "Tlacoyos 30",
+    "categorias": [
+      "Tlacoyos 30"
+    ],
+    "precio": 30.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 5,
+    "uuid": "074cc2df-ce94-424b-b7fe-1a0e0b160ce3",
+    "nombre": "Tly-Requ-Panza +",
+    "desc": "",
+    "categoria": "Tlacoyos 30",
+    "categorias": [
+      "Tlacoyos 30"
+    ],
+    "precio": 40.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 129,
+    "uuid": "dc3c3ff3-85f2-4c23-8df4-4ffaf97b99ad",
+    "nombre": "Tortillas",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 1.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 12,
+    "uuid": "123f2d67-93c0-4b89-96fe-8d19527adb80",
+    "nombre": "Vaso",
+    "desc": "",
+    "categoria": "Complementos p",
+    "categorias": [
+      "Complementos p"
+    ],
+    "precio": 1.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 128,
+    "uuid": "da81accd-1b07-4788-945e-1f4e7e72ddc6",
+    "nombre": "x2 TacosDorados",
+    "desc": "",
+    "categoria": "Tacos Dorados",
+    "categorias": [
+      "Tacos Dorados"
+    ],
+    "precio": 42.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  },
+  {
+    "id": 30,
+    "uuid": "2c989bf4-af3e-4110-8956-b0be0b42190c",
+    "nombre": "x3 TacosDorados",
+    "desc": "",
+    "categoria": "Tacos Dorados",
+    "categorias": [
+      "Tacos Dorados"
+    ],
+    "precio": 54.0,
+    "inventario": null,
+    "barcode": "",
+    "vendidos": 0
+  }
+];
+        const MAX_HISTORIAL_ORDENES = 30;
+
+        let bluetoothDevice = null;
+        let bluetoothCharacteristic = null;
+        let categoriaActual = "Todos";
+        let filtroNivel = "todos";
+        let montoLibreStr = "";
+
+        // --- ESTRUCTURA DE LA ORDEN ACTUAL CON MÚLTIPLES PEDIDOS (CLIENTES) ---
+        let ordenActual = crearEstructuraOrdenNueva();
+        let pedidoActivoIdx = 0;
+
+        // Historial de hasta 30 órdenes guardadas en localStorage
+        let historialOrdenes = JSON.parse(localStorage.getItem('pos_historial_ordenes_v1') || '[]');
+        let ordenesSeleccionadasIds = new Set();
+
+        function crearEstructuraOrdenNueva() {
+            const siguienteFolio = (parseInt(localStorage.getItem('pos_ultimo_folio') || '0') + 1);
+            return {
+                id: null, // null si aún no se ha guardado en historial
+                folio: siguienteFolio,
+                fecha: null,
+                pedidos: [
+                    { id: Date.now(), cliente: "Cliente 1", items: [] }
+                ]
+            };
+        }
+
+        function iconoCategoria(cat) {
+            const c = (cat || "").toLowerCase();
+            if (c.includes("tacos dorados")) return { icon: "🌮", bg: "bg-amber-100 text-amber-700" };
+            if (c.includes("taco")) return { icon: "🌮", bg: "bg-orange-100 text-orange-700" };
+            if (c.includes("quesadilla")) return { icon: "🧀", bg: "bg-yellow-100 text-yellow-700" };
+            if (c.includes("consom")) return { icon: "🥣", bg: "bg-red-100 text-red-700" };
+            if (c.includes("bebida")) return { icon: "🥤", bg: "bg-sky-100 text-sky-700" };
+            if (c.includes("tlacoyo")) return { icon: "🫓", bg: "bg-emerald-100 text-emerald-700" };
+            if (c.includes("gordita")) return { icon: "🥙", bg: "bg-orange-100 text-orange-800" };
+            if (c.includes("sope")) return { icon: "🍽️", bg: "bg-lime-100 text-lime-700" };
+            if (c.includes("pedido")) return { icon: "🥩", bg: "bg-rose-100 text-rose-800" };
+            if (c.includes("complemento")) return { icon: "🌶️", bg: "bg-purple-100 text-purple-700" };
+            if (c.includes("sabrita")) return { icon: "🍟", bg: "bg-yellow-100 text-yellow-800" };
+            return { icon: "🛍️", bg: "bg-slate-100 text-slate-700" };
+        }
+
+        // Cargar catálogo desde localStorage
+        let inventario = JSON.parse(localStorage.getItem('pos_inventario_clip_v3'));
+        if (!inventario || !Array.isArray(inventario) || inventario.length < 50) {
+            inventario = JSON.parse(JSON.stringify(PRODUCTOS_CLIP_BASE));
+            localStorage.setItem('pos_inventario_clip_v3', JSON.stringify(inventario));
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const cfg = JSON.parse(localStorage.getItem('pos_config') || '{}');
+            if (cfg.negocio) {
+                document.getElementById("txtNegocio").value = cfg.negocio;
+                document.getElementById("headerNegocio").innerText = cfg.negocio;
+            }
+            if (cfg.pie) document.getElementById("txtPie").value = cfg.pie;
+            if (cfg.papel) document.getElementById("selPapel").value = cfg.papel;
+
+            actualizarContadores();
+            renderCategorias();
+            actualizarUI();
+            renderInventarioAdmin();
+            renderHistorialOrdenes();
+        });
+
+        function guardarConfig() {
+            const negocio = document.getElementById("txtNegocio").value || "MI NEGOCIO";
+            document.getElementById("headerNegocio").innerText = negocio;
+            localStorage.setItem('pos_config', JSON.stringify({
+                negocio: negocio,
+                pie: document.getElementById("txtPie").value,
+                papel: document.getElementById("selPapel").value
+            }));
+        }
+
+        function abrirModalAjustes() {
+            document.getElementById("modalAjustes").classList.remove("hidden");
+        }
+
+        function cerrarModalAjustes() {
+            document.getElementById("modalAjustes").classList.add("hidden");
+        }
+
+        function actualizarContadores() {
+            document.getElementById("lblCountHeader").innerText = inventario.length;
+            document.getElementById("lblCountHistorial").innerText = historialOrdenes.length;
+            const cInv = document.getElementById("countInventario");
+            if (cInv) cInv.innerText = inventario.length;
+        }
+
+        // --- CAMBIO DE PESTAÑAS ---
+        function cambiarModo(modo) {
+            document.getElementById("vistaCatalogo").classList.toggle("hidden", modo !== "catalogo");
+            document.getElementById("vistaHistorial").classList.toggle("hidden", modo !== "historial");
+            document.getElementById("vistaTeclado").classList.toggle("hidden", modo !== "teclado");
+
+            const baseAct = "py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 clip-gradient text-white shadow";
+            const baseInact = "py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 bg-slate-800 text-slate-300";
+
+            document.getElementById("tabCatalogo").className = "flex-1 " + (modo === "catalogo" ? baseAct : baseInact);
+            document.getElementById("tabHistorial").className = "flex-1 " + (modo === "historial" ? baseAct : baseInact);
+            document.getElementById("tabTeclado").className = "px-3 " + (modo === "teclado" ? baseAct : baseInact);
+
+            if (modo === "teclado") {
+                const ped = obtenerPedidoActivo();
+                document.getElementById("lblClienteTeclado").innerText = ped.cliente || "Cliente 1";
+            } else if (modo === "historial") {
+                renderHistorialOrdenes();
+            }
+        }
+
+        // --- GESTIÓN DE MÚLTIPLES PEDIDOS (CLIENTES) EN LA MISMA ORDEN ---
+        function obtenerPedidoActivo() {
+            if (!ordenActual.pedidos || ordenActual.pedidos.length === 0) {
+                ordenActual.pedidos = [{ id: Date.now(), cliente: "Cliente 1", items: [] }];
+                pedidoActivoIdx = 0;
+            }
+            if (pedidoActivoIdx >= ordenActual.pedidos.length || pedidoActivoIdx < 0) {
+                pedidoActivoIdx = 0;
+            }
+            return ordenActual.pedidos[pedidoActivoIdx];
+        }
+
+        function seleccionarPedidoCliente(idx) {
+            pedidoActivoIdx = idx;
+            actualizarUI();
+        }
+
+        function agregarNuevoPedidoCliente() {
+            const num = ordenActual.pedidos.length + 1;
+            ordenActual.pedidos.push({
+                id: Date.now() + num,
+                cliente: `Cliente ${num}`,
+                items: []
+            });
+            pedidoActivoIdx = ordenActual.pedidos.length - 1;
+            cambiarModo('catalogo');
+            actualizarUI();
+            const inp = document.getElementById("txtNombreClienteActivo");
+            if (inp) {
+                inp.focus();
+                inp.select();
+            }
+        }
+
+        function actualizarNombreClienteActivo(nuevoNombre) {
+            const ped = obtenerPedidoActivo();
+            ped.cliente = nuevoNombre;
+            renderBarraPedidosClientes(false);
+            actualizarResumenBarraInferior();
+        }
+
+        function actualizarNombreClienteEnModal(idx, nuevoNombre) {
+            if (!ordenActual.pedidos[idx]) return;
+            ordenActual.pedidos[idx].cliente = nuevoNombre;
+            if (idx === pedidoActivoIdx) {
+                document.getElementById("txtNombreClienteActivo").value = nuevoNombre;
+            }
+            renderBarraPedidosClientes(false);
+            actualizarResumenBarraInferior();
+            actualizarPreviewModal();
+        }
+
+        function eliminarPedidoCliente(idx) {
+            if (ordenActual.pedidos.length <= 1) {
+                ordenActual.pedidos[0].items = [];
+                ordenActual.pedidos[0].cliente = "Cliente 1";
+            } else {
+                ordenActual.pedidos.splice(idx, 1);
+                if (pedidoActivoIdx >= ordenActual.pedidos.length) {
+                    pedidoActivoIdx = ordenActual.pedidos.length - 1;
+                }
+            }
+            actualizarUI();
+        }
+
+        function renderBarraPedidosClientes(sincronizarInput = true) {
+            const barra = document.getElementById("barraPedidosClientes");
+            const pedActivo = obtenerPedidoActivo();
+            if (sincronizarInput) {
+                const inp = document.getElementById("txtNombreClienteActivo");
+                if (inp && document.activeElement !== inp) {
+                    inp.value = pedActivo.cliente || "";
+                }
+            }
+
+            barra.innerHTML = ordenActual.pedidos.map((ped, idx) => {
+                const subtotalPed = ped.items.reduce((acc, i) => acc + (i.cant * i.precio), 0);
+                const cantPed = ped.items.reduce((acc, i) => acc + i.cant, 0);
+                const activo = idx === pedidoActivoIdx;
+                const nombreMostrar = (ped.cliente || `Cliente ${idx + 1}`).trim();
+                const estilo = activo
+                    ? "clip-gradient text-white shadow-sm ring-2 ring-orange-300"
+                    : "bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200";
+                return `
+                    <button onclick="seleccionarPedidoCliente(${idx})" class="px-2.5 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap transition flex items-center gap-1.5 shrink-0 ${estilo}">
+                        <span>👤 ${nombreMostrar}</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded-md ${activo ? 'bg-black/20 text-white' : 'bg-white text-slate-600'}">${cantPed} • $${subtotalPed.toFixed(0)}</span>
+                    </button>
+                `;
+            }).join("");
+
+            // Indicador de si estamos editando una orden cargada del historial
+            document.getElementById("badgeEditandoOrden").classList.toggle("hidden", !ordenActual.id);
+        }
+
+        // --- FILTROS Y CUADRÍCULA DE PRODUCTOS ---
+        function setFiltroNivel(nivel) {
+            filtroNivel = nivel;
+            categoriaActual = "Todos";
+            renderCategorias();
+            filtrarProductos();
+        }
+
+        function obtenerProductosPorNivel() {
+            return inventario.filter(item => {
+                const esPlus = (item.categoria || "").includes("30") || item.nombre.includes("+");
+                if (filtroNivel === "top") return (item.vendidos || 0) > 0;
+                if (filtroNivel === "normal") return !esPlus;
+                if (filtroNivel === "plus") return esPlus;
+                return true;
+            });
+        }
+
+        function renderCategorias() {
+            const base = obtenerProductosPorNivel();
+            const setCats = new Set(["Todos"]);
+            base.forEach(p => {
+                if (Array.isArray(p.categorias) && p.categorias.length > 0) {
+                    p.categorias.forEach(c => setCats.add(c));
+                } else {
+                    setCats.add(p.categoria || "General");
+                }
+            });
+            const cats = Array.from(setCats);
+            const barra = document.getElementById("barraCategorias");
+            barra.innerHTML = cats.map(c => {
+                const activo = c === categoriaActual;
+                const ic = c === "Todos" ? "✨" : iconoCategoria(c).icon;
+                const clase = activo
+                    ? "clip-gradient text-white shadow-xs"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200";
+                return `<button onclick="seleccionarCategoria('${c.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-xl text-[11px] font-bold whitespace-nowrap transition flex items-center gap-1 ${clase}"><span>${ic}</span><span>${c}</span></button>`;
+            }).join("");
+        }
+
+        function seleccionarCategoria(cat) {
+            categoriaActual = cat;
+            renderCategorias();
+            filtrarProductos();
+        }
+
+        function limpiarBusqueda() {
+            document.getElementById("txtBuscar").value = "";
+            filtrarProductos();
+        }
+
+        function filtrarProductos() {
+            const q = (document.getElementById("txtBuscar").value || "").toLowerCase().trim();
+            document.getElementById("btnLimpiarBusqueda").classList.toggle("hidden", q.length === 0);
+
+            const base = obtenerProductosPorNivel();
+            const filtrados = base.filter(item => {
+                const catsItem = Array.isArray(item.categorias) ? item.categorias : [item.categoria || "General"];
+                const coincideCat = categoriaActual === "Todos" || catsItem.includes(categoriaActual);
+                const coincideTexto = !q ||
+                    item.nombre.toLowerCase().includes(q) ||
+                    (item.desc || "").toLowerCase().includes(q) ||
+                    catsItem.some(c => c.toLowerCase().includes(q)) ||
+                    (item.barcode || "").includes(q);
+                return coincideCat && coincideTexto;
+            });
+
+            const grid = document.getElementById("gridProductos");
+            if (filtrados.length === 0) {
+                grid.innerHTML = `<div class="col-span-full bg-white rounded-2xl p-6 text-center text-xs text-slate-400 border border-slate-200">No se encontraron productos.</div>`;
+                return;
+            }
+
+            const pedActivo = obtenerPedidoActivo();
+
+            grid.innerHTML = filtrados.map(item => {
+                const precioNum = Number(item.precio);
+                const enClienteActivo = pedActivo.items.find(c => c.nombre === item.nombre && c.precio === precioNum);
+                const cantCliente = enClienteActivo ? enClienteActivo.cant : 0;
+
+                // Contar cuántos hay en OTROS clientes de la misma orden
+                let cantOtrosClientes = 0;
+                ordenActual.pedidos.forEach((p, idx) => {
+                    if (idx !== pedidoActivoIdx) {
+                        const m = p.items.find(c => c.nombre === item.nombre && c.precio === precioNum);
+                        if (m) cantOtrosClientes += m.cant;
+                    }
+                });
+
+                const meta = iconoCategoria(item.categoria);
+                const bordeActivo = cantCliente > 0 ? "ring-2 ring-[#FF5A00] bg-orange-50/40" : "border border-slate-200/90 bg-white";
+
+                return `
+                <div onclick="agregarProductoPorId(${item.id})" class="card-tap relative rounded-2xl p-2.5 shadow-xs transition cursor-pointer flex flex-col justify-between min-h-[88px] ${bordeActivo}">
+                    ${cantCliente > 0 ? `
+                        <div class="absolute -top-2 -right-2 flex items-center gap-1 z-10">
+                            <button onclick="event.stopPropagation(); restarProductoPorId(${item.id})" class="w-6 h-6 rounded-full bg-slate-900 text-white font-extrabold text-xs shadow flex items-center justify-center active:scale-90">−</button>
+                            <span class="clip-gradient text-white text-xs font-extrabold px-2 py-0.5 rounded-full shadow">${cantCliente}</span>
+                        </div>
+                    ` : ''}
+                    <div class="flex items-start gap-2">
+                        <div class="w-7 h-7 rounded-xl ${meta.bg} flex items-center justify-center text-sm shrink-0 font-bold">
+                            ${meta.icon}
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <span class="text-xs font-extrabold text-slate-800 leading-tight line-clamp-2 block">${item.nombre}</span>
+                            ${cantOtrosClientes > 0 ? `<span class="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded inline-block mt-0.5">+${cantOtrosClientes} en otro cliente</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between mt-1.5 pt-1 border-t border-slate-100">
+                        <span class="text-[10px] font-semibold text-slate-400 truncate max-w-[55%]">${item.categoria || 'General'}</span>
+                        <span class="text-xs font-extrabold text-[#FF5A00] bg-orange-50 px-1.5 py-0.5 rounded-lg">$${precioNum.toFixed(2)}</span>
+                    </div>
+                </div>
+                `;
+            }).join("");
+        }
+
+        // --- OPERACIONES DE PRODUCTOS EN EL CLIENTE ACTIVO ---
+        function agregarProductoPorId(id) {
+            const prod = inventario.find(p => p.id === id);
+            if (!prod) return;
+            const pedActivo = obtenerPedidoActivo();
+            const precioNum = Number(prod.precio);
+            const existe = pedActivo.items.find(p => p.nombre === prod.nombre && p.precio === precioNum);
+            if (existe) {
+                existe.cant++;
+            } else {
+                pedActivo.items.push({ id: prod.id, cant: 1, nombre: prod.nombre, precio: precioNum });
+            }
+            actualizarUI();
+        }
+
+        function restarProductoPorId(id) {
+            const prod = inventario.find(p => p.id === id);
+            if (!prod) return;
+            const pedActivo = obtenerPedidoActivo();
+            const idx = pedActivo.items.findIndex(p => p.nombre === prod.nombre && p.precio === Number(prod.precio));
+            if (idx !== -1) {
+                pedActivo.items[idx].cant--;
+                if (pedActivo.items[idx].cant <= 0) pedActivo.items.splice(idx, 1);
+                actualizarUI();
+            }
+        }
+
+        function cambiarCantidadItemPedido(pedIdx, itemIdx, delta) {
+            const ped = ordenActual.pedidos[pedIdx];
+            if (!ped || !ped.items[itemIdx]) return;
+            ped.items[itemIdx].cant += delta;
+            if (ped.items[itemIdx].cant <= 0) {
+                ped.items.splice(itemIdx, 1);
+            }
+            actualizarUI();
+        }
+
+        function nuevaOrdenEnBlanco() {
+            ordenActual = crearEstructuraOrdenNueva();
+            pedidoActivoIdx = 0;
+            document.getElementById("txtEfectivoRecibido").value = "";
+            actualizarUI();
+        }
+
+        function obtenerTotalOrden(orden = ordenActual) {
+            return (orden.pedidos || []).reduce((accP, ped) => {
+                return accP + (ped.items || []).reduce((accI, item) => accI + (item.cant * item.precio), 0);
+            }, 0);
+        }
+
+        function obtenerTotalArticulosOrden(orden = ordenActual) {
+            return (orden.pedidos || []).reduce((accP, ped) => {
+                return accP + (ped.items || []).reduce((accI, item) => accI + item.cant, 0);
+            }, 0);
+        }
+
+        function actualizarResumenBarraInferior() {
+            const numPedidos = ordenActual.pedidos.length;
+            const pedActivo = obtenerPedidoActivo();
+            const nombreAct = (pedActivo.cliente || `Cliente ${pedidoActivoIdx + 1}`).trim();
+            document.getElementById("lblResumenPedidosBarra").innerText =
+                numPedidos > 1
+                    ? `${numPedidos} Clientes • Activo: ${nombreAct}`
+                    : `👤 ${nombreAct} • Toca para modificar`;
+        }
+
+        function actualizarUI() {
+            const totalArts = obtenerTotalArticulosOrden();
+            const total = obtenerTotalOrden();
+
+            document.getElementById("badgeArticulos").innerText = totalArts;
+            document.getElementById("lblTotal").innerText = `$${total.toFixed(2)}`;
+            document.getElementById("lblTotalModal").innerText = `$${total.toFixed(2)}`;
+
+            renderBarraPedidosClientes(true);
+            actualizarResumenBarraInferior();
+            renderModalCarrito();
+            calcularCambio();
+            filtrarProductos();
+            actualizarContadores();
+        }
+
+        // --- TECLADO MONTO LIBRE ---
+        function teclaLibre(k) {
+            if (k === 'C') montoLibreStr = "";
+            else if (k === 'DEL') montoLibreStr = montoLibreStr.slice(0, -1);
+            else if (k === '.') {
+                if (!montoLibreStr.includes('.')) montoLibreStr += (montoLibreStr === "" ? "0." : ".");
+            } else {
+                if (montoLibreStr.includes('.')) {
+                    const partes = montoLibreStr.split('.');
+                    if (partes[1].length >= 2) return;
+                }
+                montoLibreStr += k;
+            }
+            const val = parseFloat(montoLibreStr) || 0;
+            document.getElementById("displayMontoLibre").innerText = `$${val.toFixed(2)}`;
+        }
+
+        function agregarMontoLibre() {
+            const val = parseFloat(montoLibreStr);
+            if (!val || val <= 0) {
+                alert("Ingresa un monto mayor a $0.00");
+                return;
+            }
+            const concepto = (document.getElementById("txtConceptoLibre").value || "").trim() || "Cargo Libre";
+            const pedActivo = obtenerPedidoActivo();
+            pedActivo.items.push({ id: Date.now(), cant: 1, nombre: concepto, precio: val });
+            montoLibreStr = "";
+            document.getElementById("displayMontoLibre").innerText = "$0.00";
+            document.getElementById("txtConceptoLibre").value = "";
+            actualizarUI();
+            cambiarModo('catalogo');
+        }
+
+        // --- MODAL DE MODIFICACIÓN RÁPIDA DE LA ORDEN ---
+        function abrirModalTicket() {
+            renderModalCarrito();
+            calcularCambio();
+            actualizarPreviewModal();
+            document.getElementById("modalTicket").classList.remove("hidden");
+        }
+
+        function cerrarModalTicket() {
+            document.getElementById("modalTicket").classList.add("hidden");
+        }
+
+        function actualizarPreviewModal() {
+            const prev = document.getElementById("txtPreview");
+            if (prev) {
+                const { lineas } = armarLineasTextoOrdenes([ordenActual], true);
+                prev.innerText = lineas.join("\n");
+            }
+        }
+
+        function renderModalCarrito() {
+            const cont = document.getElementById("listaCarritoModal");
+            if (!cont) return;
+
+            cont.innerHTML = ordenActual.pedidos.map((ped, pedIdx) => {
+                const sub = ped.items.reduce((acc, i) => acc + (i.cant * i.precio), 0);
+                const esActivo = pedIdx === pedidoActivoIdx;
+                return `
+                <div class="border ${esActivo ? 'border-[#FF5A00] bg-orange-50/20' : 'border-slate-200 bg-white'} rounded-2xl p-2.5 space-y-2 shadow-xs">
+                    <div class="flex items-center justify-between gap-1.5 border-b border-slate-100 pb-1.5">
+                        <div class="flex items-center gap-1.5 flex-1">
+                            <span class="text-xs">👤</span>
+                            <input type="text" value="${(ped.cliente || '').replace(/"/g, '&quot;')}" oninput="actualizarNombreClienteEnModal(${pedIdx}, this.value)" placeholder="Nombre del cliente..." class="font-extrabold text-xs text-slate-900 bg-slate-100/80 border border-slate-200 rounded-lg px-2 py-1 w-full focus:outline-none focus:ring-1 focus:ring-[#FF5A00]">
+                        </div>
+                        <button onclick="seleccionarPedidoCliente(${pedIdx}); cerrarModalTicket();" class="bg-orange-100 text-[#E04800] text-[10px] font-extrabold px-2 py-1 rounded-lg whitespace-nowrap">
+                            + Prod. aquí
+                        </button>
+                        <button onclick="eliminarPedidoCliente(${pedIdx})" title="Eliminar este pedido" class="text-rose-500 font-bold text-xs px-1.5 py-1">🗑</button>
+                    </div>
+
+                    ${ped.items.length === 0 ? `
+                        <div class="text-[11px] text-slate-400 text-center py-2">Sin productos aún. Toca "+ Prod. aquí" para agregarle.</div>
+                    ` : `
+                        <div class="divide-y divide-slate-100 text-xs">
+                            ${ped.items.map((item, itemIdx) => `
+                                <div class="py-1.5 flex justify-between items-center">
+                                    <div class="pr-2 min-w-0">
+                                        <span class="font-bold text-slate-800 block truncate">${item.nombre}</span>
+                                        <span class="text-[10px] text-slate-400">$${item.precio.toFixed(2)} c/u</span>
+                                    </div>
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                        <button onclick="cambiarCantidadItemPedido(${pedIdx}, ${itemIdx}, -1)" class="w-6 h-6 rounded-lg bg-slate-100 font-extrabold text-slate-700">−</button>
+                                        <span class="font-extrabold w-5 text-center">${item.cant}</span>
+                                        <button onclick="cambiarCantidadItemPedido(${pedIdx}, ${itemIdx}, 1)" class="w-6 h-6 rounded-lg bg-orange-100 font-extrabold text-[#FF5A00]">+</button>
+                                        <span class="font-extrabold w-14 text-right text-slate-900">$${(item.cant * item.precio).toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            `).join("")}
+                        </div>
+                    `}
+
+                    <div class="flex justify-between items-center pt-1 border-t border-slate-100 text-[11px]">
+                        <span class="font-bold text-slate-500">Subtotal ${ped.cliente || 'Cliente'}:</span>
+                        <span class="font-extrabold text-slate-900">$${sub.toFixed(2)}</span>
+                    </div>
+                </div>
+                `;
+            }).join("");
+        }
+
+        function setEfectivo(monto) {
+            const total = obtenerTotalOrden();
+            const input = document.getElementById("txtEfectivoRecibido");
+            if (monto === 'exacto') input.value = total > 0 ? total.toFixed(2) : "";
+            else if (monto === 0) input.value = "";
+            else input.value = monto;
+            calcularCambio();
+        }
+
+        function calcularCambio() {
+            const total = obtenerTotalOrden();
+            const recibido = parseFloat(document.getElementById("txtEfectivoRecibido").value) || 0;
+            const lbl = document.getElementById("lblCambio");
+            if (recibido >= total && total > 0) {
+                lbl.innerText = `$${(recibido - total).toFixed(2)}`;
+                lbl.className = "text-sm font-extrabold text-emerald-600";
+            } else if (recibido > 0 && recibido < total) {
+                lbl.innerText = `Faltan $${(total - recibido).toFixed(2)}`;
+                lbl.className = "text-xs font-extrabold text-rose-600";
+            } else {
+                lbl.innerText = "$0.00";
+                lbl.className = "text-sm font-extrabold text-emerald-600";
+            }
+            actualizarPreviewModal();
+        }
+
+        // --- HISTORIAL DE HASTA 30 ÓRDENES + EDICIÓN Y SELECCIÓN MÚLTIPLE ---
+        function guardarOrdenEnHistorial(limpiarDespues = true, silencioso = false) {
+            const totalArts = obtenerTotalArticulosOrden();
+            if (totalArts === 0) {
+                if (!silencioso) alert("Agrega al menos un producto antes de guardar la orden.");
+                return null;
+            }
+
+            // Filtrar pedidos vacíos si hay más de 1
+            const pedidosValidos = ordenActual.pedidos.filter(p => p.items && p.items.length > 0);
+            const copiaPedidos = JSON.parse(JSON.stringify(pedidosValidos));
+
+            const ahoraStr = new Date().toLocaleString('es-MX', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+
+            let ordenGuardada = null;
+
+            if (ordenActual.id) {
+                // Si estábamos modificando una orden existente del historial, la actualizamos
+                const idxExistente = historialOrdenes.findIndex(o => o.id === ordenActual.id);
+                if (idxExistente !== -1) {
+                    historialOrdenes[idxExistente].pedidos = copiaPedidos;
+                    historialOrdenes[idxExistente].total = obtenerTotalOrden();
+                    historialOrdenes[idxExistente].fecha = ahoraStr + " (Editada)";
+                    ordenGuardada = historialOrdenes[idxExistente];
+                }
+            }
+
+            if (!ordenGuardada) {
+                const nuevoFolio = (parseInt(localStorage.getItem('pos_ultimo_folio') || '0') + 1);
+                localStorage.setItem('pos_ultimo_folio', String(nuevoFolio));
+                ordenGuardada = {
+                    id: Date.now(),
+                    folio: nuevoFolio,
+                    fecha: ahoraStr,
+                    pedidos: copiaPedidos,
+                    total: obtenerTotalOrden()
+                };
+                historialOrdenes.unshift(ordenGuardada);
+            }
+
+            // Limitar estrictamente a máximo 30 órdenes
+            if (historialOrdenes.length > MAX_HISTORIAL_ORDENES) {
+                historialOrdenes = historialOrdenes.slice(0, MAX_HISTORIAL_ORDENES);
+            }
+
+            localStorage.setItem('pos_historial_ordenes_v1', JSON.stringify(historialOrdenes));
+
+            if (limpiarDespues) {
+                nuevaOrdenEnBlanco();
+                if (!silencioso) {
+                    alert(`✅ Orden #${ordenGuardada.folio} guardada en el Historial (${historialOrdenes.length}/30).`);
+                }
+            } else {
+                ordenActual.id = ordenGuardada.id;
+                ordenActual.folio = ordenGuardada.folio;
+                actualizarUI();
+            }
+
+            renderHistorialOrdenes();
+            return ordenGuardada;
+        }
+
+        function cargarOrdenDesdeHistorial(idOrden) {
+            const encontrada = historialOrdenes.find(o => o.id === idOrden);
+            if (!encontrada) return;
+            ordenActual = JSON.parse(JSON.stringify(encontrada));
+            pedidoActivoIdx = 0;
+            cambiarModo('catalogo');
+            actualizarUI();
+        }
+
+        function eliminarOrdenDeHistorial(idOrden) {
+            historialOrdenes = historialOrdenes.filter(o => o.id !== idOrden);
+            ordenesSeleccionadasIds.delete(idOrden);
+            localStorage.setItem('pos_historial_ordenes_v1', JSON.stringify(historialOrdenes));
+            renderHistorialOrdenes();
+            actualizarContadores();
+        }
+
+        function limpiarHistorialCompleto() {
+            if (!confirm("¿Borrar todas las órdenes del historial?")) return;
+            historialOrdenes = [];
+            ordenesSeleccionadasIds.clear();
+            localStorage.setItem('pos_historial_ordenes_v1', JSON.stringify(historialOrdenes));
+            renderHistorialOrdenes();
+            actualizarContadores();
+        }
+
+        function toggleSeleccionOrdenHistorial(idOrden) {
+            if (ordenesSeleccionadasIds.has(idOrden)) {
+                ordenesSeleccionadasIds.delete(idOrden);
+            } else {
+                ordenesSeleccionadasIds.add(idOrden);
+            }
+            renderHistorialOrdenes();
+        }
+
+        function seleccionarTodasHistorial(marcar) {
+            if (marcar) {
+                historialOrdenes.forEach(o => ordenesSeleccionadasIds.add(o.id));
+            } else {
+                ordenesSeleccionadasIds.clear();
+            }
+            renderHistorialOrdenes();
+        }
+
+        function renderHistorialOrdenes() {
+            const cont = document.getElementById("listaHistorialOrdenes");
+            if (!cont) return;
+            actualizarContadores();
+
+            // Calcular total de órdenes seleccionadas
+            const seleccionadas = historialOrdenes.filter(o => ordenesSeleccionadasIds.has(o.id));
+            const totalSel = seleccionadas.reduce((acc, o) => acc + Number(o.total || 0), 0);
+            document.getElementById("lblCantOrdenesSel").innerText = seleccionadas.length;
+            document.getElementById("lblTotalOrdenesSel").innerText = `$${totalSel.toFixed(2)}`;
+
+            if (historialOrdenes.length === 0) {
+                cont.innerHTML = `<div class="bg-white rounded-2xl p-6 text-center text-xs text-slate-400 border border-slate-200">Aún no hay órdenes guardadas. Cuando imprimas o toques "💾 Guardar", aparecerán aquí (hasta 30 órdenes).</div>`;
+                return;
+            }
+
+            cont.innerHTML = historialOrdenes.map(orden => {
+                const marcada = ordenesSeleccionadasIds.has(orden.id);
+                const nombresClientes = (orden.pedidos || []).map(p => p.cliente || "Cliente").join(", ");
+                const resumenItems = (orden.pedidos || []).map(p => {
+                    const prods = (p.items || []).map(i => `${i.cant}x ${i.nombre}`).join(", ");
+                    return `<div class="text-[11px] text-slate-600"><strong class="text-slate-800">👤 ${p.cliente}:</strong> ${prods}</div>`;
+                }).join("");
+
+                return `
+                <div class="bg-white rounded-2xl p-3 border ${marcada ? 'border-[#FF5A00] ring-2 ring-orange-200' : 'border-slate-200'} shadow-xs space-y-2">
+                    <div class="flex items-start justify-between gap-2">
+                        <label class="flex items-center gap-2 cursor-pointer flex-1">
+                            <input type="checkbox" ${marcada ? 'checked' : ''} onchange="toggleSeleccionOrdenHistorial(${orden.id})" class="w-4 h-4 accent-[#FF5A00] rounded">
+                            <div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="font-extrabold text-xs text-slate-900">Orden #${orden.folio}</span>
+                                    <span class="text-[10px] bg-orange-100 text-[#E04800] font-bold px-1.5 py-0.5 rounded">${(orden.pedidos || []).length} pedido(s)</span>
+                                </div>
+                                <span class="text-[10px] text-slate-400 block">${orden.fecha} • ${nombresClientes}</span>
+                            </div>
+                        </label>
+                        <span class="text-sm font-extrabold text-slate-900">$${Number(orden.total || 0).toFixed(2)}</span>
+                    </div>
+
+                    <div class="bg-slate-50 rounded-xl p-2 space-y-1 border border-slate-100">
+                        ${resumenItems}
+                    </div>
+
+                    <div class="flex items-center justify-end gap-1.5 pt-1">
+                        <button onclick="eliminarOrdenDeHistorial(${orden.id})" class="text-rose-500 text-xs font-bold px-2 py-1.5 rounded-lg hover:bg-rose-50">🗑</button>
+                        <button onclick="cargarOrdenDesdeHistorial(${orden.id})" class="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold px-3 py-1.5 rounded-xl">
+                            ✏️ Modificar Orden
+                        </button>
+                        <button onclick="imprimirListaDeOrdenes([historialOrdenes.find(o => o.id === ${orden.id})])" class="clip-gradient text-white text-xs font-extrabold px-3 py-1.5 rounded-xl shadow-xs">
+                            🖨️ Reimprimir
+                        </button>
+                    </div>
+                </div>
+                `;
+            }).join("");
+        }
+
+        // --- ADMINISTRACIÓN DE CATÁLOGO E IMPORTACIÓN EXCEL / CSV ---
+        function renderInventarioAdmin() {
+            const lista = document.getElementById("listaInventarioAdmin");
+            if (!lista) return;
+            actualizarContadores();
+            lista.innerHTML = inventario.map((item, idx) => `
+                <div class="p-2 flex justify-between items-center hover:bg-slate-50">
+                    <div>
+                        <span class="font-bold text-slate-800">${item.nombre}</span>
+                        <span class="text-[10px] text-slate-400 block">${item.categoria || 'General'} • $${Number(item.precio).toFixed(2)}</span>
+                    </div>
+                    <button onclick="eliminarProducto(${idx})" class="text-rose-500 font-bold px-2 py-1">Eliminar</button>
+                </div>
+            `).join("");
+        }
+
+        function guardarNuevoProducto() {
+            const nombre = document.getElementById("nuevoNombre").value.trim();
+            const precio = parseFloat(document.getElementById("nuevoPrecio").value);
+            const categoria = document.getElementById("nuevaCat").value.trim() || "General";
+            if (!nombre || isNaN(precio) || precio < 0) {
+                alert("Ingresa un nombre y precio válido.");
+                return;
+            }
+            inventario.unshift({
+                id: Date.now(),
+                nombre,
+                desc: "",
+                categoria,
+                categorias: [categoria],
+                precio,
+                vendidos: 10
+            });
+            localStorage.setItem('pos_inventario_clip_v3', JSON.stringify(inventario));
+            document.getElementById("nuevoNombre").value = "";
+            document.getElementById("nuevoPrecio").value = "";
+            document.getElementById("nuevaCat").value = "";
+            renderInventarioAdmin();
+            renderCategorias();
+            filtrarProductos();
+            alert("Producto agregado al catálogo.");
+        }
+
+        function eliminarProducto(idx) {
+            inventario.splice(idx, 1);
+            localStorage.setItem('pos_inventario_clip_v3', JSON.stringify(inventario));
+            renderInventarioAdmin();
+            renderCategorias();
+            filtrarProductos();
+        }
+
+        function restaurarInventarioInicial() {
+            if (!confirm("¿Restaurar los 149 productos originales de tu archivo Excel de Clip?")) return;
+            inventario = JSON.parse(JSON.stringify(PRODUCTOS_CLIP_BASE));
+            localStorage.setItem('pos_inventario_clip_v3', JSON.stringify(inventario));
+            renderInventarioAdmin();
+            renderCategorias();
+            filtrarProductos();
+        }
+
+        function importarArchivoCatalogo(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames.includes("Productos") ? "Productos" : workbook.SheetNames[0];
+                    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+
+                    const nuevos = [];
+                    rows.forEach((r, idx) => {
+                        const nombre = String(r['Nombre del Producto'] || r['Nombre del producto'] || r['Nombre'] || "").trim();
+                        const precioRaw = r['Precio'] !== "" ? r['Precio'] : r['Precio Unitario'];
+                        const precio = parseFloat(String(precioRaw).replace("$", "").replace(",", ""));
+                        if (!nombre || isNaN(precio) || nombre.includes("Obligatorio.")) return;
+
+                        const rawCat = String(r['Categoría'] || r['Categoria'] || "General").trim() || "General";
+                        const cats = rawCat.split(';').map(c => c.trim()).filter(Boolean);
+                        const desc = String(r['Descripción del Producto'] || "").trim();
+                        nuevos.push({
+                            id: Date.now() + idx,
+                            nombre,
+                            desc: desc.includes("Máximo de 255") ? "" : desc,
+                            categoria: cats[0] || "General",
+                            categorias: cats.length ? cats : ["General"],
+                            precio,
+                            vendidos: parseInt(r['Cantidad Vendida']) || 0
+                        });
+                    });
+
+                    if (nuevos.length > 0) {
+                        inventario = nuevos;
+                        localStorage.setItem('pos_inventario_clip_v3', JSON.stringify(inventario));
+                        renderInventarioAdmin();
+                        renderCategorias();
+                        filtrarProductos();
+                        alert(`¡Se importaron ${nuevos.length} productos con éxito!`);
+                    } else {
+                        alert("No se encontraron productos válidos en el archivo.");
+                    }
+                } catch (err) {
+                    alert("Error al leer el archivo: " + err.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // --- CONEXIÓN WEB BLUETOOTH ---
+        async function conectarImpresora() {
+            if (!navigator.bluetooth) {
+                alert("Para conectar la impresora Bluetooth en iPhone/iPad, abre este enlace dentro de la app gratuita 'Bluefy' de la App Store.");
+                return;
+            }
+            try {
+                document.getElementById("lblEstado").innerText = "Buscando...";
+                bluetoothDevice = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: [
+                        '000018f0-0000-1000-8000-00805f9b34fb',
+                        'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+                        '49535343-fe7d-4ae5-8fa9-9fafdcd25e4e',
+                        '0000ff00-0000-1000-8000-00805f9b34fb'
+                    ]
+                });
+
+                const server = await bluetoothDevice.gatt.connect();
+                const services = await server.getPrimaryServices();
+                let targetChar = null;
+
+                for (let service of services) {
+                    const chars = await service.getCharacteristics();
+                    for (let ch of chars) {
+                        if (ch.properties.write || ch.properties.writeWithoutResponse) {
+                            targetChar = ch;
+                            break;
+                        }
+                    }
+                    if (targetChar) break;
+                }
+
+                if (!targetChar) throw new Error("No se encontró canal de impresión en este dispositivo.");
+
+                bluetoothCharacteristic = targetChar;
+                document.getElementById("lblEstado").innerText = bluetoothDevice.name || "Conectada";
+                document.getElementById("dotEstado").className = "w-2 h-2 rounded-full bg-emerald-400";
+                alert("¡Impresora conectada y lista!");
+            } catch (error) {
+                console.error(error);
+                document.getElementById("lblEstado").innerText = "Vincular BT";
+                document.getElementById("dotEstado").className = "w-2 h-2 rounded-full bg-rose-500";
+                alert("No se pudo vincular: " + error.message);
+            }
+        }
+
+        // --- GENERADOR DE TICKET ESC/POS (SOPORTA MÚLTIPLES CLIENTES Y MÚLTIPLES ÓRDENES EN 1 MISMO TICKET) ---
+        const MAPA_CP850 = {
+            'á': 0xA0, 'é': 0x82, 'í': 0xA1, 'ó': 0xA2, 'ú': 0xA3,
+            'Á': 0xB5, 'É': 0x90, 'Í': 0xD6, 'Ó': 0xE0, 'Ú': 0xE9,
+            'ñ': 0xA4, 'Ñ': 0xA5, 'ü': 0x81, 'Ü': 0x9A, '¿': 0xA8, '¡': 0xAD
+        };
+
+        function encodeCP850(str) {
+            const bytes = [];
+            for (let i = 0; i < str.length; i++) {
+                const ch = str[i];
+                const code = str.charCodeAt(i);
+                if (MAPA_CP850[ch] !== undefined) bytes.push(MAPA_CP850[ch]);
+                else if (code >= 0x20 && code <= 0x7E) bytes.push(code);
+                else if (ch === '\n') bytes.push(0x0A);
+                else bytes.push(0x3F);
+            }
+            return bytes;
+        }
+
+        function lineaPar(izq, der, ancho) {
+            const maxIzq = Math.max(ancho - der.length - 1, 4);
+            const izqCorto = izq.substring(0, maxIzq);
+            const espacios = Math.max(ancho - izqCorto.length - der.length, 1);
+            return izqCorto + " ".repeat(espacios) + der;
+        }
+
+        function armarLineasTextoOrdenes(listaOrdenes, incluirEfectivoModal = false) {
+            const negocio = (document.getElementById("txtNegocio").value || "MI NEGOCIO").trim();
+            const pie = (document.getElementById("txtPie").value || "").trim();
+            const ancho = parseInt(document.getElementById("selPapel").value) || 32;
+            const sep = "-".repeat(ancho);
+            const sepDoble = "=".repeat(ancho);
+            const fechaStr = new Date().toLocaleString('es-MX', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+
+            const lineas = [];
+            lineas.push(negocio.toUpperCase());
+            lineas.push(fechaStr);
+            lineas.push(sepDoble);
+
+            let granTotal = 0;
+
+            listaOrdenes.forEach((ord, ordIdx) => {
+                if (listaOrdenes.length > 1) {
+                    lineas.push(`ORDEN #${ord.folio || (ordIdx + 1)}`);
+                }
+
+                const pedidosValidos = (ord.pedidos || []).filter(p => p.items && p.items.length > 0);
+                let subtotalOrden = 0;
+
+                pedidosValidos.forEach((ped, pIdx) => {
+                    const nombreCliente = (ped.cliente || `Cliente ${pIdx + 1}`).trim().toUpperCase();
+                    lineas.push(`PEDIDO: ${nombreCliente}`);
+
+                    let subCliente = 0;
+                    ped.items.forEach(item => {
+                        const imp = item.cant * item.precio;
+                        subCliente += imp;
+                        lineas.push(lineaPar(`${item.cant}x ${item.nombre}`, `$${imp.toFixed(2)}`, ancho));
+                    });
+
+                    subtotalOrden += subCliente;
+                    if (pedidosValidos.length > 1) {
+                        lineas.push(lineaPar(`Subtotal ${ped.cliente || 'Cliente'}:`, `$${subCliente.toFixed(2)}`, ancho));
+                    }
+                    lineas.push(sep);
+                });
+
+                granTotal += subtotalOrden;
+                if (listaOrdenes.length > 1) {
+                    lineas.push(lineaPar(`TOTAL ORDEN #${ord.folio || (ordIdx + 1)}`, `$${subtotalOrden.toFixed(2)}`, ancho));
+                    lineas.push(sepDoble);
+                }
+            });
+
+            lineas.push(lineaPar("TOTAL A PAGAR", `$${granTotal.toFixed(2)}`, ancho));
+
+            const recibido = incluirEfectivoModal ? (parseFloat(document.getElementById("txtEfectivoRecibido").value) || 0) : 0;
+            if (recibido >= granTotal && granTotal > 0) {
+                lineas.push(lineaPar("EFECTIVO", `$${recibido.toFixed(2)}`, ancho));
+                lineas.push(lineaPar("CAMBIO", `$${(recibido - granTotal).toFixed(2)}`, ancho));
+            }
+
+            if (pie) {
+                lineas.push("");
+                lineas.push(pie);
+            }
+
+            return { lineas, negocio, fechaStr, sep, sepDoble, granTotal, recibido, pie, ancho };
+        }
+
+        function vistaPreviaSeleccionadasHistorial() {
+            const seleccionadas = historialOrdenes.filter(o => ordenesSeleccionadasIds.has(o.id));
+            if (seleccionadas.length === 0) {
+                alert("Marca al menos una orden en las casillas del historial para ver su ticket combinado.");
+                return;
+            }
+            const { lineas } = armarLineasTextoOrdenes(seleccionadas, false);
+            document.getElementById("txtPreviewCombinado").innerText = lineas.join("\n");
+            document.getElementById("modalPreviewCombinado").classList.remove("hidden");
+        }
+
+        async function imprimirTicketOrdenActual() {
+            if (obtenerTotalArticulosOrden() === 0) {
+                alert("Agrega al menos un producto al pedido antes de imprimir.");
+                return;
+            }
+            // Guardamos automáticamente en el historial (hasta 30 órdenes) al imprimir
+            const ordenParaImprimir = JSON.parse(JSON.stringify(ordenActual));
+            guardarOrdenEnHistorial(true, true);
+            cerrarModalTicket();
+            await imprimirListaDeOrdenes([ordenParaImprimir], true);
+        }
+
+        async function imprimirOrdenesSeleccionadas() {
+            const seleccionadas = historialOrdenes.filter(o => ordenesSeleccionadasIds.has(o.id));
+            if (seleccionadas.length === 0) {
+                alert("Selecciona al menos una orden del historial marcando su casilla ☑️.");
+                return;
+            }
+            await imprimirListaDeOrdenes(seleccionadas, false);
+        }
+
+        async function imprimirListaDeOrdenes(listaOrdenes, incluirEfectivoModal = false) {
+            if (!bluetoothCharacteristic) {
+                alert("La orden ya quedó guardada en tu Historial.\n\nPara imprimir en papel, toca el botón 'Vincular BT' arriba a la derecha para conectar tu impresora Bluetooth.");
+                return;
+            }
+
+            guardarConfig();
+            const { negocio, fechaStr, sep, sepDoble, granTotal, recibido, pie, ancho } = armarLineasTextoOrdenes(listaOrdenes, incluirEfectivoModal);
+            const bytes = [];
+
+            // INIT + Codepage CP850
+            bytes.push(0x1B, 0x40);
+            bytes.push(0x1B, 0x74, 0x02);
+
+            // Encabezado del negocio (Centrado, Negrita, Doble tamaño)
+            bytes.push(0x1B, 0x61, 0x01);
+            bytes.push(0x1B, 0x45, 0x01);
+            bytes.push(0x1D, 0x21, 0x11);
+            bytes.push(...encodeCP850(negocio + "\n"));
+            bytes.push(0x1D, 0x21, 0x00);
+            bytes.push(0x1B, 0x45, 0x00);
+
+            bytes.push(...encodeCP850(fechaStr + "\n"));
+            bytes.push(0x1B, 0x61, 0x00);
+            bytes.push(...encodeCP850(sepDoble + "\n"));
+
+            // Desglose por Orden y por Cliente/Pedido
+            listaOrdenes.forEach((ord, ordIdx) => {
+                if (listaOrdenes.length > 1) {
+                    bytes.push(0x1B, 0x45, 0x01);
+                    bytes.push(...encodeCP850(`ORDEN #${ord.folio || (ordIdx + 1)}\n`));
+                    bytes.push(0x1B, 0x45, 0x00);
+                }
+
+                const pedidosValidos = (ord.pedidos || []).filter(p => p.items && p.items.length > 0);
+                let subtotalOrden = 0;
+
+                pedidosValidos.forEach((ped, pIdx) => {
+                    const nombreCliente = (ped.cliente || `Cliente ${pIdx + 1}`).trim().toUpperCase();
+                    bytes.push(0x1B, 0x45, 0x01);
+                    bytes.push(...encodeCP850(`PEDIDO: ${nombreCliente}\n`));
+                    bytes.push(0x1B, 0x45, 0x00);
+
+                    let subCliente = 0;
+                    ped.items.forEach(item => {
+                        const imp = item.cant * item.precio;
+                        subCliente += imp;
+                        bytes.push(...encodeCP850(lineaPar(`${item.cant}x ${item.nombre}`, `$${imp.toFixed(2)}`, ancho) + "\n"));
+                    });
+
+                    subtotalOrden += subCliente;
+                    if (pedidosValidos.length > 1) {
+                        bytes.push(...encodeCP850(lineaPar(`Subtotal ${ped.cliente || 'Cliente'}:`, `$${subCliente.toFixed(2)}`, ancho) + "\n"));
+                    }
+                    bytes.push(...encodeCP850(sep + "\n"));
+                });
+
+                if (listaOrdenes.length > 1) {
+                    bytes.push(0x1B, 0x45, 0x01);
+                    bytes.push(...encodeCP850(lineaPar(`TOTAL ORDEN #${ord.folio || (ordIdx + 1)}`, `$${subtotalOrden.toFixed(2)}`, ancho) + "\n"));
+                    bytes.push(0x1B, 0x45, 0x00);
+                    bytes.push(...encodeCP850(sepDoble + "\n"));
+                }
+            });
+
+            // Gran Total en negrita
+            bytes.push(0x1B, 0x45, 0x01);
+            bytes.push(...encodeCP850(lineaPar("TOTAL A PAGAR", `$${granTotal.toFixed(2)}`, ancho) + "\n"));
+            bytes.push(0x1B, 0x45, 0x00);
+
+            if (recibido >= granTotal && granTotal > 0) {
+                bytes.push(...encodeCP850(lineaPar("Efectivo", `$${recibido.toFixed(2)}`, ancho) + "\n"));
+                bytes.push(...encodeCP850(lineaPar("Cambio", `$${(recibido - granTotal).toFixed(2)}`, ancho) + "\n"));
+            }
+
+            if (pie) {
+                bytes.push(0x1B, 0x61, 0x01);
+                bytes.push(...encodeCP850("\n" + pie + "\n"));
+            }
+
+            // Avanzar papel para corte
+            bytes.push(0x0A, 0x0A, 0x0A, 0x0A);
+
+            try {
+                const uint8Array = new Uint8Array(bytes);
+                const chunkSize = 256;
+                for (let i = 0; i < uint8Array.length; i += chunkSize) {
+                    const chunk = uint8Array.slice(i, i + chunkSize);
+                    if (bluetoothCharacteristic.properties.writeWithoutResponse) {
+                        await bluetoothCharacteristic.writeValueWithoutResponse(chunk);
+                    } else {
+                        await bluetoothCharacteristic.writeValue(chunk);
+                    }
+                    await new Promise(r => setTimeout(r, 40));
+                }
+                alert("¡Ticket impreso con éxito! ✔");
+            } catch (err) {
+                console.error(err);
+                alert("Error al enviar a la impresora: " + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
